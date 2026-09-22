@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := run
 
-.PHONY: run test evaluate web
+.PHONY: run test evaluate web apply
 
 # Interactive wrapper around `python -m app.main` — asks the questions
 # instead of you having to remember the argparse flags.
@@ -36,3 +36,13 @@ evaluate:
 
 web:
 	DB_PATH=$(CURDIR)/data/seen_jobs.sqlite3 npm --prefix web run dev
+
+# Interactive wrapper around `python -m app.generate_application` — drafts a
+# cover letter + CV tailoring notes for ONE job you've picked (paste its URL
+# from the web board or candidates.csv). Never submits anything.
+apply:
+	@dry_run_flag=""; \
+	read -rp "Job URL: " url; \
+	read -rp "Do you want a dry run? [y/N] " ans; \
+	[[ "$$ans" =~ ^[Yy] ]] && dry_run_flag="--dry-run"; \
+	python -m app.generate_application --url "$$url" $$dry_run_flag
