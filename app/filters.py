@@ -35,6 +35,9 @@ EXCLUSION_KEYWORDS = _config["exclusion_keywords"]
 LOCATION_ALLOW_PATTERNS = _config["location_allow_patterns"]
 STACK_DEALBREAKERS = _config["stack_dealbreakers"]
 STACK_CORE = _config["stack_core"]
+BACKEND_TITLE_KEYWORDS = _config["backend_title_keywords"]
+FULL_STACK_TITLE_KEYWORDS = _config["full_stack_title_keywords"]
+FRONTEND_SIGNAL_PATTERNS = _config["frontend_signal_patterns"]
 TRUNCATED_DESCRIPTION_MIN_CHARS = _config["truncated_description_min_chars"]
 
 def _compile_keyword_alternation(keywords: list[str], config_key: str) -> re.Pattern:
@@ -56,6 +59,9 @@ _exclusion_re = _compile_keyword_alternation(EXCLUSION_KEYWORDS, "exclusion_keyw
 _location_res = [re.compile(p, re.IGNORECASE) for p in LOCATION_ALLOW_PATTERNS]
 _dealbreaker_res = [re.compile(p, re.IGNORECASE) for p in STACK_DEALBREAKERS]
 _core_res = [re.compile(p, re.IGNORECASE) for p in STACK_CORE]
+_backend_title_re = _compile_keyword_alternation(BACKEND_TITLE_KEYWORDS, "backend_title_keywords")
+_full_stack_title_re = _compile_keyword_alternation(FULL_STACK_TITLE_KEYWORDS, "full_stack_title_keywords")
+_frontend_signal_res = [re.compile(p, re.IGNORECASE) for p in FRONTEND_SIGNAL_PATTERNS]
 
 _html_tag_re = re.compile(r"<[^>]+>")
 
@@ -117,13 +123,42 @@ def jd_stack_mismatch(description: str) -> bool:
     return has_dealbreaker and not has_core
 
 
+def title_is_backend_only(title: str) -> bool:
+    """True if `title` signals a backend-only role — rejected
+    unconditionally, even for titles that would otherwise bypass
+    exclusion via priority_title_keywords. A title that also carries a
+    frontend signal (e.g. "Full Stack Engineer, Backend Focus") is
+    full-stack-shaped instead and left to full_stack_lacks_frontend_signal."""
+    title = title or ""
+    if not _backend_title_re.search(title):
+        return False
+    return not any(p.search(title) for p in _frontend_signal_res)
+
+
+def full_stack_lacks_frontend_signal(title: str, description: str) -> bool:
+    """True if `title` reads as full-stack but the JD shows no real
+    frontend signal — treated as a backend role with a full-stack label.
+    Only meaningful when `description` is non-empty — an unknown JD gets
+    the benefit of the doubt, same convention as jd_stack_mismatch."""
+    if not _full_stack_title_re.search(title or ""):
+        return False
+    text = strip_html(description)
+    if not text:
+        return False
+    return not any(p.search(text) for p in _frontend_signal_res)
+
+
 def passes_filters(job: dict) -> bool:
     """job must have 'title' and 'location' keys (plain strings); may
     optionally have a 'description' key (HTML or plain text)."""
+    if title_is_backend_only(job.get("title", "")):
+        return False
     if not title_is_relevant(job.get("title", "")):
         return False
     if not location_is_allowed(job.get("location", "")):
         return False
     if jd_stack_mismatch(job.get("description", "")):
+        return False
+    if full_stack_lacks_frontend_signal(job.get("title", ""), job.get("description", "")):
         return False
     return True

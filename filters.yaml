@@ -15,6 +15,9 @@ priority_title_keywords:
   - "full stack"
   - "fullstack"
   - "full-stack"
+  - "frontend"
+  - "front-end"
+  - "front end"
 
 # Title must match at least one of these to be considered at all.
 title_allow_keywords:
@@ -30,9 +33,11 @@ title_allow_keywords:
   - "full stack"
   - "fullstack"
   - "full-stack"
-  - "backend"
-  - "back-end"
-  - "back end"
+  - "frontend"
+  - "front-end"
+  - "front end"
+  - "react"
+  - "ui engineer"
   - "platform"
   - "tech lead"
   - "technical lead"
@@ -85,22 +90,17 @@ exclusion_keywords:
   - "compliance"
   - "product marketing"
 
-# EDIT ME FIRST: locations to keep, as regex patterns (case-insensitive)
-# matched against the free-text location string each ATS/aggregator
-# returns. Ships below as Canada/Alberta-only (the original author's
-# search) — replace with your own country/region/cities, or every job
-# will get rejected regardless of how good a fit it is. Deliberately does
-# NOT allow a bare "Remote" with no country qualifier — some postings say
-# "Remote Poland"/"Remote Spain"/"Remote Australia" etc, so an allowlist
-# needs an explicit country/region signal instead.
+# Location doesn't matter beyond "must be remote" — worldwide is fine
+# (contractor/part-time roles are fine too; nothing filters on employment
+# type). Matches any location string that signals remote work at all,
+# with no country/region qualifier required.
 location_allow_patterns:
-  - '\bcanada\b'
-  - '\balberta\b'
-  - ',\s*ab\b'       # "Calgary, AB" / "Edmonton, AB"
-  - '\bedmonton\b'
-  - '\bcalgary\b'
-  - '\bontario\b'
-  - '\bvancouver\b'
+  - '\bremote\b'
+  - '\banywhere\b'
+  - '\bworldwide\b'
+  - '\bglobal\b'
+  - '\bwork from home\b'
+  - '\bwfh\b'
 
 # EDIT ME FIRST (along with stack_core below): JD stack dealbreakers — if
 # the description clearly requires one of these languages/frameworks and
@@ -138,6 +138,44 @@ stack_core:
   - '\btypescript\b'
   - '\breact\b'
   - '\bnode(?:\.?js)?\b'
+  - '\bvue\b'
+  - '\bnext\.?js\b'
+
+# Backend-only titles are rejected unconditionally, even if they'd
+# otherwise match priority_title_keywords (e.g. "Senior Software Engineer,
+# Backend" contains "software engineer") — unless the title itself also
+# carries a frontend signal (frontend_signal_patterns below), in which
+# case it's full-stack-shaped and handled by the full-stack check instead.
+backend_title_keywords:
+  - "backend"
+  - "back-end"
+  - "back end"
+
+# A title matching "full stack"/"fullstack"/"full-stack" only passes if
+# the JD also shows a real frontend signal from this list — otherwise it's
+# treated as a backend role with a full-stack label tacked on. Only runs
+# when a description is available (unknown JD -> benefit of the doubt,
+# don't reject).
+full_stack_title_keywords:
+  - "full stack"
+  - "fullstack"
+  - "full-stack"
+
+frontend_signal_patterns:
+  - '\breact\b'
+  - '\bvue\b'
+  - '\bangular\b'
+  - '\bfront[- ]?end\b'
+  - '\bcss\b'
+  - '\bhtml\b'
+  - '\btailwind\b'
+  - '\bredux\b'
+  - '\bzustand\b'
+  - '\btanstack\b'
+  - '\bdesign system\b'
+  - '\buser interface\b'
+  - '\bux\b'
+  - '\bnext\.?js\b'
 
 # Below this many characters, a JD is treated as a short aggregator teaser
 # snippet rather than a full posting (see app/filters.py's looks_truncated).
