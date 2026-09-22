@@ -37,12 +37,14 @@ evaluate:
 web:
 	DB_PATH=$(CURDIR)/data/seen_jobs.sqlite3 npm --prefix web run dev
 
-# Interactive wrapper around `python -m app.generate_application` — drafts a
-# cover letter + CV tailoring notes for ONE job you've picked (paste its URL
-# from the web board or candidates.csv). Never submits anything.
+# Interactive wrapper around `python -m app.generate_application` — writes a
+# ready-to-paste prompt (cover letter + CV tailoring notes) for ONE job
+# you've picked (paste its URL from the web board or candidates.csv). Free
+# by default (paste the output into claude.ai/ChatGPT yourself); only calls
+# the paid Anthropic API if you opt into --api. Never submits anything.
 apply:
-	@dry_run_flag=""; \
+	@api_flag=""; \
 	read -rp "Job URL: " url; \
-	read -rp "Do you want a dry run? [y/N] " ans; \
-	[[ "$$ans" =~ ^[Yy] ]] && dry_run_flag="--dry-run"; \
-	python -m app.generate_application --url "$$url" $$dry_run_flag
+	read -rp "Use the paid Anthropic API instead of a paste-into-chat prompt? [y/N] " ans; \
+	[[ "$$ans" =~ ^[Yy] ]] && api_flag="--api"; \
+	python -m app.generate_application --url "$$url" $$api_flag
