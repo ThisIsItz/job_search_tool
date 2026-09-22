@@ -3,23 +3,25 @@
 # keyword + location, so they catch companies you haven't identified yet —
 # at the cost of more noise, which is exactly what filters.py exists for.
 #
-# type: one of "adzuna" | "remotive"
+# type: one of "adzuna" | "remotive" | "remoteok" | "jobicy" | "weworkremotely"
 # params: passed straight through to that aggregator's search API, EXCEPT
 #   max_pages (adzuna only) — a pipeline-level control consumed by
 #   fetch_adzuna() before building the request, not sent to Adzuna itself.
 #
-# EDIT ME: every Adzuna entry's `where` below is Alberta/Canada (the
-# original author's search) and `what` targets their keywords/stack.
-# Replace both with your own location and role keywords — and make sure
-# they match filters.yaml's location_allow_patterns/stack_core, or a real
-# result will still get filtered out downstream.
+# Adzuna's `where` param is a GEOGRAPHIC field (city/region/country) — it
+# doesn't recognize "remote" as a place, so `where: "remote"` silently
+# returns 0 results every time (confirmed live 2026-09-22). Put "remote" in
+# `what` (the keyword search) instead; fetch_adzuna() then normalizes the
+# returned location field so filters.yaml's location_allow_patterns still
+# match. `where` is left unset below so results aren't narrowed to one
+# city/region within the country.
 
 aggregators:
-  - name: Adzuna (Canada, software engineer)
+  - name: Adzuna (UK, remote frontend/react)
     type: adzuna
     params:
-      what: "software engineer"
-      where: "Alberta"
+      what: "frontend engineer remote"
+      country: "gb"
       results_per_page: 50
       max_pages: 5   # up to 250 results; stops early if a page comes back short
     notes: >
@@ -28,28 +30,80 @@ aggregators:
       confirmed in research, check your account dashboard after signup).
       Set ADZUNA_APP_ID / ADZUNA_APP_KEY as environment variables.
 
-  - name: Adzuna (Canada, remote backend/fullstack)
+  - name: Adzuna (UK, remote full stack)
     type: adzuna
     params:
-      what: "backend engineer OR full stack"
-      where: "Canada"
+      what: "full stack engineer remote"
+      country: "gb"
       results_per_page: 50
       max_pages: 5
 
-  - name: Adzuna (Canada, remote senior software engineer)
+  - name: Adzuna (Spain, remote frontend/react)
     type: adzuna
     params:
-      what: "software engineer"
-      where: "Canada"
+      what: "frontend engineer remote"
+      country: "es"
       results_per_page: 50
-      max_pages: 1
+      max_pages: 5
+
+  - name: Adzuna (Germany, remote frontend/react)
+    type: adzuna
+    params:
+      what: "frontend engineer remote"
+      country: "de"
+      results_per_page: 50
+      max_pages: 5
+
+  - name: Adzuna (US, remote frontend/react)
+    type: adzuna
+    params:
+      what: "frontend engineer remote"
+      country: "us"
+      results_per_page: 50
+      max_pages: 5
 
   - name: Remotive (software-dev category)
     type: remotive
     params:
       category: "software-dev"
     notes: >
-      No auth needed. Remote-only listings (won't catch Alberta on-site
-      roles). Remotive asks for max 4 requests/day and max 2/minute — keep
-      this to one call per pipeline run. Listings are delayed 24h from
-      posting per their terms.
+      No auth needed. Remote-only listings. Remotive asks for max 4
+      requests/day and max 2/minute — keep this to one call per pipeline
+      run. Listings are delayed 24h from posting per their terms.
+
+  - name: RemoteOK (latest postings)
+    type: remoteok
+    params: {}
+    notes: >
+      No auth needed. Always returns the latest ~100 postings across all
+      categories (tag/location query params don't actually filter
+      server-side, confirmed live) — filters.yaml's title/stack rules do
+      the real filtering. Every listing is remote by construction.
+
+  - name: Jobicy (dev tag, Europe)
+    type: jobicy
+    params:
+      count: 50
+      tag: "dev"
+      geo: "europe"
+    notes: >
+      No auth needed. `geo` really does filter server-side (confirmed
+      live) — "europe" here since that's most relevant given EU/UK
+      eligibility, but location doesn't otherwise matter for you, so a
+      second entry with geo left out (or set to "usa") would widen this.
+
+  - name: Jobicy (dev tag, worldwide)
+    type: jobicy
+    params:
+      count: 50
+      tag: "dev"
+
+  - name: WeWorkRemotely (programming)
+    type: weworkremotely
+    params:
+      category: "remote-programming-jobs"
+    notes: >
+      No auth needed. RSS, not JSON. Only returns the latest ~25 postings
+      per fetch (no pagination) — filters.yaml's title/stack rules do the
+      real filtering, same as RemoteOK. Every listing is remote by
+      construction.

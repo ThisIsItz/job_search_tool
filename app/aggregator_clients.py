@@ -10,6 +10,7 @@ via WebFetch during research. Run for real on a machine with normal internet.
 """
 import os
 import re
+import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -253,10 +254,11 @@ def fetch_adzuna(params: dict) -> list[dict]:
     params = dict(params)  # don't mutate the caller's dict (reused across runs)
     max_pages = params.pop("max_pages", 5)
     results_per_page = params.get("results_per_page", 50)
+    country = params.pop("country", "gb")  # Adzuna country-code endpoint, e.g. "gb", "es", "de"
 
     jobs = []
     for page in range(1, max_pages + 1):
-        url = f"https://api.adzuna.com/v1/api/jobs/ca/search/{page}"
+        url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/{page}"
         query = {
             "app_id": app_id,
             "app_key": app_key,
@@ -296,10 +298,27 @@ def fetch_adzuna(params: dict) -> list[dict]:
                         "name": company_name, "ats": full["ats"], "slug": full["slug"],
                     })
 
+            # Adzuna's structured `location` is a geographic field (e.g.
+            # "UK", "London, UK") — it doesn't reflect remote status even
+            # when the posting clearly is remote (that only shows up in the
+            # title/description text, which is exactly why `where: "remote"`
+            # in aggregators.yaml returns 0 results: Adzuna's geocoder
+            # doesn't recognize "remote" as a place). Confirmed live
+            # 2026-09-22. So: normalize the same way as
+            # fetch_remoteok/fetch_jobicy/fetch_weworkremotely — if "remote"
+            # shows up in the title or description text, fold it into the
+            # location string so filters.location_is_allowed() (which only
+            # ever looks at this field) doesn't drop a genuinely remote
+            # posting just because Adzuna's location field is a bare
+            # country/city name.
+            normalized_loc = loc
+            if "remote" not in loc.lower() and "remote" in (title + " " + description).lower():
+                normalized_loc = f"Remote - {loc}" if loc else "Remote"
+
             jobs.append({
                 "company": company_name,
                 "title": title,
-                "location": loc,
+                "location": normalized_loc,
                 "url": redirect_url,
                 "posted_at": j.get("created"),
                 "description": description,
@@ -329,9 +348,103 @@ def fetch_remotive(params: dict) -> list[dict]:
     return jobs
 
 
+def fetch_remoteok(params: dict) -> list[dict]:
+    """https://remoteok.com/api — no auth, no real query params (tag/location
+    query params were tested live and don't actually filter server-side), so
+    this always returns the latest ~100 postings and leaves title/stack
+    filtering to filters.py. Every RemoteOK listing is remote by
+    construction, but the `location` field is often blank or just a hiring
+    org's home city — normalized to always carry the word "remote" so
+    filters.location_is_allowed() doesn't drop real remote jobs over a
+    missing/ambiguous location string."""
+    url = "https://remoteok.com/api"
+    resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+
+    jobs = []
+    for j in data:
+        if "position" not in j:
+            continue  # first element is RemoteOK's API-terms legal notice, not a job
+        raw_location = (j.get("location") or "").strip()
+        jobs.append({
+            "company": j.get("company", "Unknown"),
+            "title": j.get("position", ""),
+            "location": f"Remote - {raw_location}" if raw_location else "Remote",
+            "url": j.get("url") or j.get("apply_url", ""),
+            "posted_at": j.get("date"),
+            "description": j.get("description", ""),
+        })
+    return jobs
+
+
+def fetch_jobicy(params: dict) -> list[dict]:
+    """https://jobicy.com/api/v2/remote-jobs — no auth. Supports real
+    server-side filters: `count`, `tag` (loose keyword match on title, e.g.
+    "dev"), `geo` (e.g. "europe", "usa"), `industry`. All Jobicy listings
+    are remote by construction; `jobGeo` is a hiring-eligibility region
+    (e.g. "Europe", "USA"), not itself "remote" text, so it's folded into
+    the normalized location the same way as fetch_remoteok."""
+    url = "https://jobicy.com/api/v2/remote-jobs"
+    resp = httpx.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+
+    jobs = []
+    for j in data.get("jobs", []):
+        geo = (j.get("jobGeo") or "").strip()
+        jobs.append({
+            "company": j.get("companyName", "Unknown"),
+            "title": j.get("jobTitle", ""),
+            "location": f"Remote - {geo}" if geo else "Remote",
+            "url": j.get("url", ""),
+            "posted_at": j.get("pubDate"),
+            "description": j.get("jobDescription", ""),  # full HTML per Jobicy's docs
+        })
+    return jobs
+
+
+def fetch_weworkremotely(params: dict) -> list[dict]:
+    """https://weworkremotely.com/categories/<category>.rss — no auth, RSS
+    (not JSON). Confirmed live: the general "remote-programming-jobs"
+    category mixes Full-Stack/Back-End/Front-End-tagged postings (a
+    dedicated front-end-only feed URL was tried and returned 0 items, so
+    don't rely on one existing) — leaves title/stack filtering to
+    filters.py, same as fetch_remoteok. Every listing is remote by
+    construction; `region` (e.g. "USA Only", "Anywhere in the World") is an
+    eligibility hint, not itself "remote" text, so it's folded into the
+    normalized location the same way as fetch_remoteok/fetch_jobicy.
+    Title is "Company: Job Title" — split on the first ": "."""
+    category = params.get("category", "remote-programming-jobs")
+    url = f"https://weworkremotely.com/categories/{category}.rss"
+    resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    root = ET.fromstring(resp.text)
+
+    jobs = []
+    for item in root.findall(".//item"):
+        raw_title = (item.findtext("title") or "").strip()
+        company, sep, title = raw_title.partition(": ")
+        if not sep:
+            company, title = "Unknown", raw_title
+        region = (item.findtext("region") or "").strip()
+        jobs.append({
+            "company": company,
+            "title": title,
+            "location": f"Remote - {region}" if region else "Remote",
+            "url": item.findtext("link") or item.findtext("guid") or "",
+            "posted_at": item.findtext("pubDate"),
+            "description": item.findtext("description") or "",
+        })
+    return jobs
+
+
 FETCHERS = {
     "adzuna": fetch_adzuna,
     "remotive": fetch_remotive,
+    "remoteok": fetch_remoteok,
+    "jobicy": fetch_jobicy,
+    "weworkremotely": fetch_weworkremotely,
 }
 
 
