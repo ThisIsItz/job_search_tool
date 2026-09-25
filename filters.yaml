@@ -180,3 +180,10 @@ frontend_signal_patterns:
 # Below this many characters, a JD is treated as a short aggregator teaser
 # snippet rather than a full posting (see app/filters.py's looks_truncated).
 truncated_description_min_chars: 400
+
+# A posting older than this many days is rejected. Some ATSes (Ashby in
+# particular) report the role's original publish date rather than a
+# last-still-open date, so an evergreen posting can look years old and get
+# rejected here even if it's still accepting applications — if that's a
+# problem in practice, raise this or drop the check for one company.
+max_posting_age_days: 45

@@ -16,6 +16,7 @@ catches engineering-adjacent titles that aren't a fit (sales engineer,
 hardware/mechanical engineer, etc).
 """
 import re
+from datetime import datetime, timezone
 
 import yaml
 
@@ -39,6 +40,7 @@ BACKEND_TITLE_KEYWORDS = _config["backend_title_keywords"]
 FULL_STACK_TITLE_KEYWORDS = _config["full_stack_title_keywords"]
 FRONTEND_SIGNAL_PATTERNS = _config["frontend_signal_patterns"]
 TRUNCATED_DESCRIPTION_MIN_CHARS = _config["truncated_description_min_chars"]
+MAX_POSTING_AGE_DAYS = _config["max_posting_age_days"]
 
 def _compile_keyword_alternation(keywords: list[str], config_key: str) -> re.Pattern:
     # An empty keyword list joins to "" and compiles to "()", which matches
@@ -148,6 +150,22 @@ def full_stack_lacks_frontend_signal(title: str, description: str) -> bool:
     return not any(p.search(text) for p in _frontend_signal_res)
 
 
+def posting_is_too_old(posted_at: str | None) -> bool:
+    """True if `posted_at` (ISO 8601, aware or naive) is older than
+    MAX_POSTING_AGE_DAYS. Unknown/unparseable dates get the benefit of the
+    doubt (False) rather than being rejected."""
+    if not posted_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - dt).days
+    return age_days > MAX_POSTING_AGE_DAYS
+
+
 def passes_filters(job: dict) -> bool:
     """job must have 'title' and 'location' keys (plain strings); may
     optionally have a 'description' key (HTML or plain text)."""
@@ -158,6 +176,8 @@ def passes_filters(job: dict) -> bool:
     if not location_is_allowed(job.get("location", "")):
         return False
     if jd_stack_mismatch(job.get("description", "")):
+        return False
+    if posting_is_too_old(job.get("posted_at")):
         return False
     if full_stack_lacks_frontend_signal(job.get("title", ""), job.get("description", "")):
         return False

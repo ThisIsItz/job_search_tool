@@ -46,7 +46,7 @@ export default function Page() {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "match_score" ? "desc" : "asc");
+      setSortDir(key === "match_score" || key === "posted_at" ? "desc" : "asc");
     }
   }
 
