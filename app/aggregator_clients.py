@@ -11,6 +11,7 @@ via WebFetch during research. Run for real on a machine with normal internet.
 import os
 import re
 import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -414,7 +415,8 @@ def fetch_weworkremotely(params: dict) -> list[dict]:
     construction; `region` (e.g. "USA Only", "Anywhere in the World") is an
     eligibility hint, not itself "remote" text, so it's folded into the
     normalized location the same way as fetch_remoteok/fetch_jobicy.
-    Title is "Company: Job Title" — split on the first ": "."""
+    Title is "Company: Job Title" — split on the first ": ". `pubDate` is
+    RFC 822, normalized to ISO 8601 here to match every other source."""
     category = params.get("category", "remote-programming-jobs")
     url = f"https://weworkremotely.com/categories/{category}.rss"
     resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
@@ -428,12 +430,17 @@ def fetch_weworkremotely(params: dict) -> list[dict]:
         if not sep:
             company, title = "Unknown", raw_title
         region = (item.findtext("region") or "").strip()
+        raw_pub_date = item.findtext("pubDate")
+        try:
+            posted_at = parsedate_to_datetime(raw_pub_date).isoformat() if raw_pub_date else None
+        except (TypeError, ValueError):
+            posted_at = raw_pub_date
         jobs.append({
             "company": company,
             "title": title,
             "location": f"Remote - {region}" if region else "Remote",
             "url": item.findtext("link") or item.findtext("guid") or "",
-            "posted_at": item.findtext("pubDate"),
+            "posted_at": posted_at,
             "description": item.findtext("description") or "",
         })
     return jobs

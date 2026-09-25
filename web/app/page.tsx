@@ -15,7 +15,7 @@ export default function Page() {
   const [myStatusFilter, setMyStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
 
-  const [sortKey, setSortKey] = useState<SortKey>("match_score");
+  const [sortKey, setSortKey] = useState<SortKey>("posted_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);

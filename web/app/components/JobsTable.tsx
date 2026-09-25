@@ -8,6 +8,17 @@ const COLUMNS: [SortKey, string][] = [
   ["posted_at", "Date"],
 ];
 
+const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 10);
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = MONTHS_ES[d.getUTCMonth()];
+  return `${day}-${month}-${d.getUTCFullYear()}`;
+}
+
 type JobsTableProps = {
   rows: Job[];
   sortKey: SortKey;
@@ -49,7 +60,7 @@ export default function JobsTable({rows, sortKey, sortDir, onToggleSort, onSelec
                 ))}
               </select>
             </td>
-            <td className="loc-cell">{j.posted_at ? j.posted_at.slice(0, 10) : ""}</td>
+            <td className="loc-cell">{formatDate(j.posted_at)}</td>
           </tr>
         ))}
       </tbody>
