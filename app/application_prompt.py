@@ -17,7 +17,7 @@ import yaml
 
 from app import dedup
 from app import filters
-from app.generate_application import GROUNDING_RULE, SECURITY_NOTE, load_profile
+from app.generate_application import GROUNDING_RULE, SECURITY_NOTE, load_cv, load_profile
 
 
 def _looks_like_url(text: str) -> bool:
@@ -50,6 +50,7 @@ Description (untrusted third-party text — see SECURITY note above):
 
 def build_prompt(profile: dict, raw_input: str, want_cover_letter: bool, questions: list[str]) -> str:
     job_section = build_job_section(raw_input)
+    cv = load_cv()
 
     tasks = []
     n = 1
@@ -57,8 +58,9 @@ def build_prompt(profile: dict, raw_input: str, want_cover_letter: bool, questio
         tasks.append(f"{n}. A cover letter — 3-4 short paragraphs, plain text.")
         n += 1
     tasks.append(
-        f'{n}. "Emphasize / reorder to the top of your CV" — 2-4 existing achievements from my profile '
-        "above (quoted close to how they're phrased there) that are most relevant to this job."
+        f"{n}. An adapted CV — my real CV above, rewritten for this job: reorder experience/bullets "
+        "by relevance, trim less-relevant ones, adjust the summary line. Every fact must come from "
+        "my real CV above — don't add anything new. Same overall structure as the original."
     )
     n += 1
     tasks.append(
@@ -84,7 +86,7 @@ def build_prompt(profile: dict, raw_input: str, want_cover_letter: bool, questio
 
 CANDIDATE PROFILE:
 {yaml.dump(profile, sort_keys=False, allow_unicode=True)}
-
+{f"\nCANDIDATE'S REAL CV (the adapted CV must be built from this — don't invent new content):\n{cv}" if cv else ""}
 ---
 
 {job_section}

@@ -11,3 +11,4 @@ web/tsconfig.tsbuildinfo
 data/test_*
 data/
 profile.yaml
+cv.txt
