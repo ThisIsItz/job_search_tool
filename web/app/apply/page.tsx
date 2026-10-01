@@ -63,10 +63,6 @@ function ApplyForm() {
   return (
     <main className="apply-page">
       <h1>Preparar candidatura</h1>
-      <p className="subtitle">
-        Pega la oferta y genero un prompt listo para copiar en claude.ai o ChatGPT — gratis, usa tu
-        suscripción, no la API de pago.
-      </p>
 
       <label className="apply-field">
         Oferta (URL ya guardada en tu búsqueda, o el texto completo del puesto pegado)
