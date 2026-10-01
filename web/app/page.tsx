@@ -23,6 +23,24 @@ export default function Page() {
   const [draftNotes, setDraftNotes] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  async function fetchNewJobs() {
+    setFetching(true);
+    setFetchError(null);
+    try {
+      const res = await fetch("/api/fetch", {method: "POST"});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      await load();
+    } catch (e: any) {
+      setFetchError(e.message);
+    } finally {
+      setFetching(false);
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -138,7 +156,10 @@ export default function Page() {
         count={rows.length}
         total={jobs.length}
         onRefresh={load}
+        onFetchNew={fetchNewJobs}
+        fetching={fetching}
       />
+      {fetchError && <p className="error-state">{fetchError}</p>}
 
       <main>
         {loading && <div className="loading-state">Loading...</div>}

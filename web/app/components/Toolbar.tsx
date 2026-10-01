@@ -10,13 +10,15 @@ type ToolbarProps = {
   count: number;
   total: number;
   onRefresh: () => void;
+  onFetchNew: () => void;
+  fetching: boolean;
 };
 
 const Toolbar = ({
   aiStatusFilter, onAiStatusFilterChange,
   myStatusFilter, onMyStatusFilterChange,
   search, onSearchChange,
-  count, total, onRefresh,
+  count, total, onRefresh, onFetchNew, fetching,
 }: ToolbarProps) => {
   return (
     <div className="toolbar">
@@ -52,6 +54,9 @@ const Toolbar = ({
       <div className="spacer" />
       <span className="count-badge">{count} / {total}</span>
       <button className="btn secondary" onClick={onRefresh}>↻ Refresh</button>
+      <button className="btn" onClick={onFetchNew} disabled={fetching}>
+        {fetching ? "Buscando… (1-2 min)" : "Buscar ofertas nuevas"}
+      </button>
     </div>
   );
 };
