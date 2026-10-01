@@ -29,7 +29,7 @@ def show_one(url: str) -> None:
             reasons.append("title")
         if not filters.location_is_allowed(details.get("location") or ""):
             reasons.append("location")
-        if filters.jd_stack_mismatch(details.get("description") or ""):
+        if filters.jd_stack_mismatch(details.get("title") or "", details.get("description") or ""):
             reasons.append("stack")
         print(f"filtered out by: {'+'.join(reasons) or '? (check filters.py — none of the three checks tripped)'}")
 
@@ -52,7 +52,7 @@ def show_rejected(limit: int = 20) -> None:
             reasons.append("title")
         if not filters.location_is_allowed(location):
             reasons.append("location")
-        if filters.jd_stack_mismatch(description or ""):
+        if filters.jd_stack_mismatch(title or "", description or ""):
             reasons.append("stack")
         print(f"[{'+'.join(reasons) or '?':16s}] {company:20s} | {title[:50]:50s} | {location}")
 

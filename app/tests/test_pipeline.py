@@ -123,9 +123,10 @@ def main():
     assert filters.title_is_relevant("Senior Software Engineer, Backend")
     assert filters.title_is_relevant("Software Engineer, Automated Marketing")
     assert not filters.title_is_relevant("Sales Engineer")  # priority list shouldn't rescue this
-    assert filters.jd_stack_mismatch("5+ years of Java and Spring Boot required.")
-    assert not filters.jd_stack_mismatch("Java services and a Python/FastAPI stack.")
-    assert not filters.jd_stack_mismatch("")  # no JD available -> don't reject on stack alone
+    assert filters.jd_stack_mismatch("Software Engineer", "5+ years of Java and Spring Boot required.")
+    assert not filters.jd_stack_mismatch("Software Engineer", "Java services and a Python/FastAPI stack.")
+    assert not filters.jd_stack_mismatch("", "")  # no title/JD available -> don't reject on stack alone
+    assert filters.jd_stack_mismatch("Android Engineer (C++)", "")  # dealbreaker named in the title alone
 
     print("\nAll assertions passed.")
 

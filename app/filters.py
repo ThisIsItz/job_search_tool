@@ -112,13 +112,14 @@ def location_is_allowed(location: str) -> bool:
     return any(p.search(loc) for p in _location_res)
 
 
-def jd_stack_mismatch(description: str) -> bool:
-    """True if the JD looks like a dealbreaker-language role with no
-    mention of your own core stack. Only meaningful when `description` is
-    non-empty — callers should treat an empty description as "unknown,
-    don't reject on stack alone"."""
-    text = strip_html(description)
-    if not text:
+def jd_stack_mismatch(title: str, description: str) -> bool:
+    """True if the title+JD look like a dealbreaker-language role with no
+    mention of your own core stack. `title` is included because a title
+    can name a dealbreaker on its own (e.g. "Android Engineer (C++)") even
+    with no/thin description — only an entirely empty title+description
+    gets the benefit of the doubt."""
+    text = strip_html((title or "") + " " + (description or ""))
+    if not text.strip():
         return False
     has_dealbreaker = any(p.search(text) for p in _dealbreaker_res)
     has_core = any(p.search(text) for p in _core_res)
@@ -175,7 +176,7 @@ def passes_filters(job: dict) -> bool:
         return False
     if not location_is_allowed(job.get("location", "")):
         return False
-    if jd_stack_mismatch(job.get("description", "")):
+    if jd_stack_mismatch(job.get("title", ""), job.get("description", "")):
         return False
     if posting_is_too_old(job.get("posted_at")):
         return False

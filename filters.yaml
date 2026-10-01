@@ -113,9 +113,13 @@ location_allow_patterns:
 # "javascript". Deliberately NOT including bare "go" — too ambiguous
 # ("go-to-market", "go live", etc.); "golang" below covers it, and most Go
 # postings also say "Golang" or "Go (Golang)" somewhere in the JD.
+# NOTE: c#/c++ use `(?!\w)` instead of a trailing `\b` — `\b` only matches
+# between a word and non-word character, and `#`/`+` are themselves
+# non-word, so `\bc#\b`/`\bc\+\+\b` never matched anything real (confirmed
+# live 2026-10-01: zero matches against "C# developer", "(C++)", etc.)
 stack_dealbreakers:
   - '\bjava\b'
-  - '\bc#\b'
+  - '\bc#(?!\w)'
   - '\.net\b'
   - '\bgolang\b'
   - '\bruby\b'
@@ -124,7 +128,7 @@ stack_dealbreakers:
   - '\bkotlin\b'
   - '\bswift\b'
   - '\bscala\b'
-  - '\bc\+\+\b'
+  - '\bc\+\+(?!\w)'
 
 # Your own core stack — if the JD mentions any of these, a stack dealbreaker
 # match above is ignored (the role likely uses both, or the dealbreaker
