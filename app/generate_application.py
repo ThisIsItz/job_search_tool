@@ -69,8 +69,11 @@ GENERATION_SCHEMA = {
                 "description": "The candidate's real CV below, rewritten for THIS job: reorder "
                                 "experience/bullets by relevance, trim less-relevant ones, adjust "
                                 "the summary line. Every fact (employer, dates, metric, skill) must "
-                                "come from the real CV — do not add anything new. Plain text, same "
-                                "overall structure as the original (summary, experience, education, "
+                                "come from the real CV — do not add anything new, except where the "
+                                "candidate's own cv_adaptation_rules explicitly authorize a framing "
+                                "change (e.g. a role title or location line) relevant to this job. "
+                                "Plain text, same overall structure as the original (summary, "
+                                "experience, education, "
                                 "skills).",
             },
             "keywords_to_mirror": {
@@ -175,7 +178,8 @@ Write me, for this specific job:
 1. A cover letter — 3-4 short paragraphs, plain text.
 2. An adapted CV — my real CV above, rewritten for this job: reorder experience/bullets by
    relevance, trim less-relevant ones, adjust the summary line. Every fact must come from my
-   real CV above — don't add anything new. Same overall structure as the original.
+   real CV above — don't add anything new. Apply any cv_adaptation_rules from my profile above
+   that are relevant to this job. Same overall structure as the original.
 3. "Keywords to mirror" — 3-6 terms this posting uses that genuinely match something already
    true of my background, worth echoing in my CV/cover letter wording.
 4. "Caveats" — anything this job wants that ISN'T in my profile/CV above, so I know what NOT to

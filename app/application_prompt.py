@@ -60,7 +60,8 @@ def build_prompt(profile: dict, raw_input: str, want_cover_letter: bool, questio
     tasks.append(
         f"{n}. An adapted CV — my real CV above, rewritten for this job: reorder experience/bullets "
         "by relevance, trim less-relevant ones, adjust the summary line. Every fact must come from "
-        "my real CV above — don't add anything new. Same overall structure as the original."
+        "my real CV above — don't add anything new. Apply any cv_adaptation_rules from my profile "
+        "above that are relevant to this job. Same overall structure as the original."
     )
     n += 1
     tasks.append(
