@@ -42,6 +42,7 @@ body {
   color: var(--text);
 }
 header { padding: 20px 28px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 h1 { margin: 0 0 4px; font-size: 20px; }
 .subtitle { color: var(--text-dim); font-size: 13px; }
 
@@ -124,4 +125,14 @@ textarea {
   background: var(--accent); color: white; cursor: pointer; text-decoration: none; display: inline-block;
 }
 .btn.secondary { background: transparent; color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .save-status { font-size: 12px; color: var(--text-dim); }
+
+/* apply page */
+.apply-page { max-width: 760px; margin: 0 auto; padding: 32px 20px 60px; }
+.apply-page h1 { margin: 0 0 4px; font-size: 20px; }
+.apply-field { display: flex; flex-direction: column; gap: 6px; margin: 18px 0; font-size: 13px; color: var(--text-dim); }
+.apply-checkbox { display: flex; align-items: center; gap: 8px; margin: 14px 0; font-size: 14px; color: var(--text); }
+.apply-result { margin-top: 24px; }
+.apply-result-actions { display: flex; gap: 10px; margin-bottom: 10px; }
+.apply-prompt-output { font-family: ui-monospace, monospace; font-size: 12px; }

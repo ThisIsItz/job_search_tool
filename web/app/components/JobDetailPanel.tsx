@@ -55,6 +55,9 @@ export default function JobDetailPanel({
             <a className="btn secondary" href={job.url} target="_blank" rel="noopener noreferrer">
               Open job ↗
             </a>
+            <a className="btn secondary" href={`/apply?url=${encodeURIComponent(job.url)}`}>
+              Preparar candidatura
+            </a>
           </div>
           {job.match_score != null && (
             <>

@@ -117,9 +117,14 @@ export default function Page() {
   return (
     <>
       <header>
-        <h1>Job Search Board</h1>
-        <div className="subtitle">
-          Reads and writes data/seen_jobs.sqlite3 directly — no export/import step.
+        <div className="header-row">
+          <div>
+            <h1>Job Search Board</h1>
+            <div className="subtitle">
+              Reads and writes data/seen_jobs.sqlite3 directly — no export/import step.
+            </div>
+          </div>
+          <a className="btn secondary" href="/apply">Preparar candidatura</a>
         </div>
       </header>
 
