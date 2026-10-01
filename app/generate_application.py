@@ -88,8 +88,27 @@ GENERATION_SCHEMA = {
                 "description": "Honest note on anything the JD wants that ISN'T in the candidate's "
                                 "profile — what NOT to claim. Empty string if there's no real gap.",
             },
+            "company_type": {
+                "type": "string",
+                "enum": ["direct_employer", "agency", "unclear"],
+                "description": "Is this posting from the direct employer, or a recruitment/staffing "
+                                "agency hiring on a client's behalf?",
+            },
+            "company_type_confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+            },
+            "company_type_reasoning": {
+                "type": "string",
+                "description": "The specific signal behind the company_type call — e.g. a known "
+                                "agency name, \"our client\" language in the JD, a generic/anonymized "
+                                "company name, or an official company careers page.",
+            },
         },
-        "required": ["cover_letter", "adapted_cv", "keywords_to_mirror", "caveats"],
+        "required": [
+            "cover_letter", "adapted_cv", "keywords_to_mirror", "caveats",
+            "company_type", "company_type_confidence", "company_type_reasoning",
+        ],
     },
 }
 
@@ -183,7 +202,11 @@ Write me, for this specific job:
 3. "Keywords to mirror" — 3-6 terms this posting uses that genuinely match something already
    true of my background, worth echoing in my CV/cover letter wording.
 4. "Caveats" — anything this job wants that ISN'T in my profile/CV above, so I know what NOT to
-   claim. Say "none" if there's no real gap."""
+   claim. Say "none" if there's no real gap.
+5. "Company type" — is this posting from the direct employer, or a recruitment/staffing agency
+   hiring on a client's behalf (e.g. a known agency name, "our client" language in the JD, a
+   generic/anonymized company name)? State direct employer / agency / unclear, your confidence
+   (high/medium/low), and the specific signal that led you there."""
 
 
 def _extract_tool_input(resp) -> dict | None:
@@ -233,6 +256,8 @@ def write_draft(job: dict, draft: dict) -> Path:
     notes_lines = [
         f"# Tailoring notes — {job['company']} / {job['title']}",
         f"\n{job['url']}\n",
+        f"## Company type\n\n{draft['company_type']} "
+        f"(confidence: {draft['company_type_confidence']}) — {draft['company_type_reasoning']}\n",
         "## Keywords to mirror (already true of your background)\n",
     ]
     notes_lines += [f"- {k}" for k in draft["keywords_to_mirror"]]

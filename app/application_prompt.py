@@ -74,6 +74,13 @@ def build_prompt(profile: dict, raw_input: str, want_cover_letter: bool, questio
         'claim. Say "none" if there\'s no real gap.'
     )
     n += 1
+    tasks.append(
+        f'{n}. "Company type" — is this posting from the direct employer, or a recruitment/staffing '
+        "agency hiring on a client's behalf (e.g. a known agency name, \"our client\" language in the "
+        "JD, a generic/anonymized company name)? State direct employer / agency / unclear, your "
+        "confidence (high/medium/low), and the specific signal that led you there."
+    )
+    n += 1
     if questions:
         numbered_qs = "\n".join(f"   {i}. {q}" for i, q in enumerate(questions, 1))
         tasks.append(
