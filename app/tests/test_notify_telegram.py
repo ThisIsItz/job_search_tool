@@ -144,6 +144,19 @@ def test_telegram_call_gives_up_after_max_attempts():
     import httpx
 
     with patch("app.notify_telegram.httpx.post", side_effect=httpx.ConnectError("SSL EOF")) as mock_post, \
-         pytest.raises(httpx.ConnectError):
+         pytest.raises(RuntimeError, match="SSL EOF"):
         notify_telegram.call_telegram("token", "sendMessage", chat_id="chat", text="hi")
     assert mock_post.call_count == notify_telegram.MAX_ATTEMPTS
+
+
+def test_errors_never_include_the_bot_token():
+    import httpx
+
+    token = "123456:SECRET-TOKEN"
+    request = httpx.Request("POST", f"https://api.telegram.org/bot{token}/sendMessage")
+    unauthorized = httpx.Response(401, json={"ok": False}, request=request)
+    with patch("app.notify_telegram.httpx.post", return_value=unauthorized), \
+         pytest.raises(RuntimeError) as error:
+        notify_telegram.call_telegram(token, "sendMessage", chat_id="chat", text="hi")
+    assert token not in str(error.value)
+    assert error.value.__cause__ is None and error.value.__suppress_context__

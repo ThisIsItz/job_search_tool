@@ -114,8 +114,13 @@ def _post_with_retries(url: str, params: dict) -> httpx.Response:
 
 
 def call_telegram(token: str, method: str, **params) -> dict:
-    resp = _post_with_retries(TELEGRAM_API.format(token=token, method=method), params)
-    resp.raise_for_status()
+    try:
+        resp = _post_with_retries(TELEGRAM_API.format(token=token, method=method), params)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        # httpx error messages include the request URL, which contains the bot token;
+        # `from None` keeps the original (URL-bearing) exception out of tracebacks and logs.
+        raise RuntimeError(f"Telegram {method} failed: {str(e).replace(token, '<token>')}") from None
     data = resp.json()
     if not data.get("ok"):
         raise RuntimeError(f"Telegram {method} failed: {data.get('description')}")
