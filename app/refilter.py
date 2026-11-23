@@ -3,8 +3,7 @@ data/seen_jobs.sqlite3 that were previously filtered out — no re-fetch from
 any ATS/aggregator needed, since job_details keeps the full record
 (including description) for every job ever seen, pass or fail.
 
-Use this whenever you tweak filters.py (add a keyword, loosen a location
-pattern, etc.) and want previously-dropped jobs to get a second look
+Use this whenever you tweak filters.py (add or remove a keyword, etc.) and want previously-dropped jobs to get a second look
 without waiting for the next scheduled run to re-discover them — which it
 wouldn't anyway, since seen_jobs already marks them as seen.
 

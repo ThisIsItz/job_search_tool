@@ -8,7 +8,7 @@ each candidate's fit against your own experience with Claude, and review
 the results in a local web board.
 
 Nothing here talks to any service other than the job sources you configure
-and (for the optional AI step) the Anthropic API. All state — scraped
+and (for the optional AI steps) the Gemini and Anthropic APIs. All state — scraped
 jobs, scores, your own notes — lives in a local SQLite database; nothing
 is sent to a third party beyond fetching the postings themselves.
 
@@ -21,19 +21,27 @@ is sent to a third party beyond fetching the postings themselves.
      (Greenhouse, Ashby, Workable, Lever, SmartRecruiters) — precise, low
      noise.
    - `aggregators.yaml` — broad keyword+location search across many
-     employers at once (Adzuna, Remotive) — wider reach, more noise.
-2. **Filter** (`app/filters.py`) — drops anything that isn't an
-   engineering-shaped title, isn't in an allowed location, or whose JD
-   requires a stack you've excluded.
+     employers at once (Adzuna, Remotive, and LinkedIn/Indeed via
+     [JobSpy](https://github.com/speedyapply/JobSpy)) — wider reach, more noise.
+2. **Filter** (`app/filters.py`) — drops only what's obviously out: titles
+   matching `filters.yaml`'s exclusion keywords (sales, marketing, nursing…)
+   and postings older than `max_posting_age_days`. Everything else goes on
+   to the AI filter.
 3. **Dedup** (`app/dedup.py`) — everything fetched is stored in a local
    SQLite database (`data/seen_jobs.sqlite3`), keyed by URL and by
    normalized company+title, so re-runs only ever surface genuinely new
    postings.
-4. **AI evaluation** (`app/ai_evaluate.py`, optional, costs money) — sends
+4. **AI filter** (`app/ai_filter.py`, optional, free tier) — asks
+   Gemini's Decisions API closed questions about each filtered job (remote
+   vs hybrid vs on-site, hireable from your regions, role type, seniority,
+   stack fit, required languages) and drops the clear misses, so the paid
+   step below only scores what's left. Only the posting and your
+   `core_stack` technologies are sent to Google.
+5. **AI evaluation** (`app/ai_evaluate.py`, optional, costs money) — sends
    each filtered candidate plus your `profile.yaml` to Claude, which scores
    fit (0-100) and returns concrete gaps, transferable strengths, risk
    factors, and an apply/consider/skip recommendation.
-5. **Review** (`web/`) — a local Next.js app reading/writing the same
+6. **Review** (`web/`) — a local Next.js app reading/writing the same
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
 
@@ -62,31 +70,24 @@ specificity/quantification each evidence bullet should actually have, see
 (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
 entry in `aggregators.yaml` — register a free key at
 [developer.adzuna.com](https://developer.adzuna.com). Remotive needs no
-auth but only covers remote roles.
+auth but only covers remote roles. JobSpy (LinkedIn/Indeed) needs no auth
+either — it scrapes the sites' public, logged-out job search.
 
 ### Customize for your own search
 
-This repo ships pre-configured for the original author's search (Alberta/
-Canada, Python/JS stack). **Before your first run, edit these three
-files** or you'll get zero candidates, or candidates that don't match your
-actual stack:
+This repo ships pre-configured for the original author's search. **Before
+your first run, check these:**
 
-1. **`filters.yaml` → `location_allow_patterns`** — regex patterns for
-   locations to keep. Ships as Canada/Alberta-only; replace with your own
-   country/region/cities, or delete entries to broaden it. This is the
-   #1 reason a first run returns nothing — if nothing you fetch ever
-   matches these patterns, `location_is_allowed()` rejects every job.
-2. **`filters.yaml` → `stack_dealbreakers` / `stack_core`** — a JD is
-   rejected if it mentions a `stack_dealbreakers` language and none of
-   `stack_core`. Ships assuming you want Python/JS and don't want
-   Java/C#/.NET/etc. If your own stack includes one of the "dealbreaker"
-   languages, move it into `stack_core` (or the filter will reject roles
-   in your own stack).
+1. **`profile.yaml` → `core_stack`** — the technologies the AI filter
+   scores stack fit against.
+2. **`app/ai_filter.py`'s constants** — where you can be hired
+   (`WORK_REGIONS`, `RELOCATION_CITY`), the languages you speak, and which
+   role types/seniorities you accept.
 3. **`companies.yaml`** — the company registry. Ships with the original
    author's real target list; add/remove companies to match who you're
    actually applying to (see the file's header comment for the format).
-   `aggregators.yaml`'s `where` params are also location-specific —
-   update those too if you're not targeting Alberta/Canada.
+   `aggregators.yaml`'s search params are also location-specific —
+   update those to where you're looking.
 
 ## Usage
 
@@ -101,9 +102,28 @@ python -m app.main --skip-companies   # aggregators.yaml only
 make run                              # same thing, interactive prompts instead of flags
 ```
 
-Output: `data/candidates.csv`, appended to on every run.
+Results land in `data/seen_jobs.sqlite3`; browse them on the web board (step 4).
 
-### 2. AI evaluation (optional, costs money)
+### 2. AI filter (optional, free tier)
+
+Needs `GEMINI_API_KEY` in `.env` (free at
+[aistudio.google.com](https://aistudio.google.com)). Rejection rules and
+your work regions/languages are constants at the top of
+`app/ai_filter.py`; each verdict and its raw probabilities are stored in
+the `ai_filter` table so you can audit why a job was dropped.
+
+```bash
+python -m app.ai_filter --dry-run  # see what's queued, no API calls
+python -m app.ai_filter --limit 20 # screen just 20 first
+python -m app.ai_filter            # screen everything not screened yet
+python -m app.ai_filter --rescreen # also re-screen screened jobs, after changing the rules
+
+make ai-filter                        # interactive prompts instead of flags
+```
+
+Rejected jobs are skipped by step 3 and hidden from the web board.
+
+### 3. AI evaluation (optional, costs money)
 
 ```bash
 python -m app.ai_evaluate --dry-run   # see what's queued, no API calls, no cost
@@ -114,10 +134,9 @@ make evaluate                         # interactive prompts instead of flags
 ```
 
 Results are stored in SQLite (so re-running never re-pays for a job
-already scored) and written to `data/scored_candidates.csv`, sorted
-best-match-first.
+already scored) and shown on the web board.
 
-### 3. Review results
+### 4. Review results
 
 ```bash
 cd web && npm install    # first time only
@@ -126,8 +145,25 @@ make web                              # starts the board at http://localhost:300
 ```
 
 Reads/writes `data/seen_jobs.sqlite3` directly — no export/import step.
+Shows each job's source and, where the source provides one (Adzuna, Jobicy,
+RemoteOK, LinkedIn/Indeed), its annual salary, with a minimum-salary filter.
 See [`web/README.md`](web/README.md) for details (custom `DB_PATH`,
 production build, etc).
+
+### 5. Daily run with Telegram alerts (optional)
+
+`make daily` runs fetch -> AI filter -> sends you one Telegram digest of
+the new jobs that passed both (each job is sent once). If a step fails, you
+get a failure notice instead.
+
+1. In Telegram, message @BotFather, send `/newbot`, and put the token in
+   `.env` as `TELEGRAM_BOT_TOKEN`.
+2. Send any message to your new bot, then run
+   `python -m app.notify_telegram --find-chat-id` and put the number in
+   `.env` as `TELEGRAM_CHAT_ID`.
+3. `make install-daily` schedules it every day at 09:00 via launchd (logs in
+   `data/daily.log`); `make uninstall-daily` removes it. It only runs while
+   the Mac is on — if it's asleep at 09:00, it runs on wake.
 
 ## Makefile commands
 
@@ -136,7 +172,8 @@ Thin wrappers over the commands above — run from the repo root:
 | Command        | Equivalent to                    | What it does |
 |-----------------|----------------------------------|--------------|
 | `make run`      | `python -m app.main`             | Fetch + filter (step 1). Interactively asks whether to skip companies/aggregators/discovery and whether to limit to one company slug, instead of you remembering the flags. |
-| `make evaluate` | `python -m app.ai_evaluate`       | AI evaluation (step 2). Interactively asks for `--dry-run` and an optional `--limit`. |
+| `make ai-filter` | `python -m app.ai_filter` | AI filter (step 2). Interactively asks for `--dry-run` and an optional `--limit`. |
+| `make evaluate` | `python -m app.ai_evaluate`       | AI evaluation (step 3). Interactively asks for `--dry-run` and an optional `--limit`. |
 | `make web`      | `npm --prefix web run dev`       | Starts the Next.js review board, with `DB_PATH` already pointed at `data/seen_jobs.sqlite3`. |
 | `make test`     | `pytest app/` + the standalone sanity-check scripts | Runs the full test suite (see the Tests section below). |
 
@@ -160,13 +197,14 @@ Thin wrappers over the commands above — run from the repo root:
 
 ```
 app/
-  main.py                 orchestrates fetch -> filter -> dedup -> candidates.csv
+  main.py                 orchestrates fetch -> filter -> dedup -> SQLite
   ats_clients.py           one fetch function per ATS
   aggregator_clients.py    one fetch function per aggregator
   filters.py               loads and applies filters.yaml's rules
   dedup.py                 SQLite store (seen_jobs, job_details)
   discover_companies.py    auto-appends newly-resolved companies to companies.yaml
-  ai_evaluate.py           stage 2: Claude-based fit scoring
+  ai_filter.py          Gemini Decisions API screening before Claude scoring
+  ai_evaluate.py           Claude-based fit scoring
   inspect_job.py           CLI to look up a stored job or list recent rejections
   refilter.py              re-runs current filters.py against already-fetched jobs
   scripts/                 one-off diagnostic/maintenance scripts, not part of the pipeline

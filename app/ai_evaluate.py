@@ -4,13 +4,12 @@ Reads every job that passed the deterministic filters (filters.py) but
 hasn't been scored yet (dedup.get_unevaluated_candidates), sends it to
 Claude Haiku alongside your profile.yaml, and asks for a FUNCTIONAL FIT
 judgment — not a title match. Results are stored in the ai_evaluations
-table (see dedup.py) and written out to data/scored_candidates.csv, best
-match first.
+table (see dedup.py) and shown on the web board.
 
 This is the ONLY part of the pipeline that costs money — everything
 upstream (fetch, filter, dedup) is free. That's the whole point of doing
 filtering deterministically first: by the time a job reaches this script,
-it's already passed title/location/stack screening, so the AI-scored
+it's already passed filters.py and ai_filter.py's screening, so the AI-scored
 volume should be small.
 
 Setup:
@@ -23,10 +22,8 @@ Usage:
     python app/ai_evaluate.py --dry-run    # show what WOULD be sent, call nothing
 """
 import argparse
-import csv
 import os
 import sys
-from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
@@ -37,7 +34,6 @@ from app import filters
 load_dotenv()
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
-OUTPUT_CSV = Path("data/scored_candidates.csv")
 
 REQUIRED_EVAL_FIELDS = ["match_score", "recommendation", "genuine_gaps", "transferable_strengths", "risk_factors"]
 
@@ -200,20 +196,6 @@ def evaluate_one(client, profile: dict, job: dict, max_retries: int = 1) -> dict
                             f"{missing} after {max_retries + 1} attempt(s): {evaluation}")
 
 
-def write_csv(conn, path: Path = OUTPUT_CSV) -> int:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rows = list(dedup.iter_scored_candidates(conn))
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "match_score", "recommendation", "company", "title", "location",
-            "transferable_strengths", "genuine_gaps", "risk_factors", "url", "posted_at",
-        ])
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-    return len(rows)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Max number of jobs to evaluate this run")
@@ -256,6 +238,3 @@ if __name__ == "__main__":
             conn.commit()  # commit per-job so a crash mid-run doesn't lose completed evaluations
             print(f"[{i}/{len(queue)}] {evaluation['match_score']:3d} {evaluation['recommendation']:9s} | "
                   f"{job['company']:20s} | {job['title']}")
-
-        total = write_csv(conn)
-        print(f"\nWrote {total} scored candidates to {OUTPUT_CSV} (sorted by match_score desc).")

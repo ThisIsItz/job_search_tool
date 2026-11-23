@@ -18,7 +18,12 @@ export type JobRow = {
   posted_at: string | null;
   description: string;
   passed_filters: number;
+  source: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
   match_score: number | null;
+  stack_fit: number | null;
   recommendation: string | null;
   genuine_gaps: string | null;
   transferable_strengths: string | null;
@@ -46,7 +51,11 @@ function getDb(): Database.Database {
       posted_at TEXT,
       description TEXT,
       passed_filters INTEGER,
-      fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
+      fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      source TEXT,
+      salary_min REAL,
+      salary_max REAL,
+      salary_currency TEXT
     );
     CREATE TABLE IF NOT EXISTS ai_evaluations (
       url TEXT PRIMARY KEY,
@@ -55,6 +64,14 @@ function getDb(): Database.Database {
       genuine_gaps TEXT,
       transferable_strengths TEXT,
       risk_factors TEXT,
+      model TEXT,
+      evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS ai_filter (
+      url TEXT PRIMARY KEY,
+      passed INTEGER,
+      rejection_reason TEXT,
+      answers TEXT,
       model TEXT,
       evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -73,14 +90,17 @@ export function getJobs(): JobRow[] {
     .prepare(
       `
       SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at,
-             jd.description, jd.passed_filters,
-             ae.match_score, ae.recommendation, ae.genuine_gaps,
+             jd.description, jd.passed_filters, jd.source,
+             jd.salary_min, jd.salary_max, jd.salary_currency,
+             ae.match_score, json_extract(ap.answers, '$.stack_fit.score') AS stack_fit,
+             ae.recommendation, ae.genuine_gaps,
              ae.transferable_strengths, ae.risk_factors,
              us.my_status, us.notes
       FROM job_details jd
       LEFT JOIN ai_evaluations ae ON jd.url = ae.url
       LEFT JOIN user_status us ON jd.url = us.url
-      WHERE jd.passed_filters = 1
+      LEFT JOIN ai_filter ap ON jd.url = ap.url
+      WHERE jd.passed_filters = 1 AND (ap.passed IS NULL OR ap.passed = 1)
       ORDER BY ae.match_score DESC
       `
     )

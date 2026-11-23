@@ -1,10 +1,11 @@
-import {MY_STATUS_LABEL, MY_STATUS_VALUES} from "@/app/constants";
+import {MY_STATUS_LABEL, MY_STATUS_VALUES, SOURCE_LABEL} from "@/app/constants";
+import {formatSalary} from "@/lib/salary";
 import {Job, SortDir, SortKey} from "@/app/types";
 import StatusBadge from "@/app/components/StatusBadge";
 
 const COLUMNS: [SortKey, string][] = [
-  ["company", "Company"], ["title", "Title"], ["location", "Location"],
-  ["match_score", "Score"], ["status", "AI status"], ["my_status", "My status"],
+  ["company", "Company"], ["title", "Title"], ["location", "Location"], ["source", "Source"], ["salary", "Salary"],
+  ["match_score", "Score"], ["stack_fit", "Stack fit"], ["status", "AI status"], ["my_status", "My status"],
   ["posted_at", "Date"],
 ];
 
@@ -46,7 +47,10 @@ export default function JobsTable({rows, sortKey, sortDir, onToggleSort, onSelec
             <td className="company-cell">{j.company}</td>
             <td>{j.title}</td>
             <td className="loc-cell">{j.location}</td>
+            <td className="loc-cell">{j.source ? SOURCE_LABEL[j.source] ?? j.source : "—"}</td>
+            <td className="score-cell">{formatSalary(j)}</td>
             <td className="score-cell">{j.match_score ?? "—"}</td>
+            <td className="score-cell">{j.stack_fit?.toFixed(1) ?? "—"}</td>
             <td><StatusBadge status={j.status} /></td>
             <td onClick={(e) => e.stopPropagation()}>
               <select

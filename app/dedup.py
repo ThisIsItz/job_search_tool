@@ -10,7 +10,7 @@ never re-fetch/re-consider the same posting on a future run.
 
 `job_details` holds the full record (including the JD description text)
 for every job we've ever seen, keyed by URL — this is where descriptions
-live instead of in candidates.csv. Rationale (2026-08-11): a full JD is
+live (rather than in a CSV). Rationale (2026-08-11): a full JD is
 one to several KB of HTML/text; dumping that into a CSV column makes the
 file unreadable in Excel/Sheets and defeats the point of the CSV being a
 quick human-scannable list. Query this table directly (see
@@ -45,7 +45,10 @@ CREATE TABLE IF NOT EXISTS job_details (
     description TEXT,
     passed_filters INTEGER,
     fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    source TEXT
+    source TEXT,
+    salary_min REAL,
+    salary_max REAL,
+    salary_currency TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ai_evaluations (
@@ -57,6 +60,26 @@ CREATE TABLE IF NOT EXISTS ai_evaluations (
     risk_factors TEXT,
     model TEXT,
     evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (url) REFERENCES job_details(url)
+);
+
+-- Cheap yes/no-style screening (ai_filter.py, Gemini Decisions API)
+-- that runs between filters.py and ai_evaluate.py. `answers` is the raw
+-- per-question JSON so a rejection can be audited later.
+CREATE TABLE IF NOT EXISTS ai_filter (
+    url TEXT PRIMARY KEY,
+    passed INTEGER,
+    rejection_reason TEXT,
+    answers TEXT,
+    model TEXT,
+    evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (url) REFERENCES job_details(url)
+);
+
+-- Jobs already sent to you by notify_telegram.py, so each is sent once.
+CREATE TABLE IF NOT EXISTS notified_jobs (
+    url TEXT PRIMARY KEY,
+    notified_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (url) REFERENCES job_details(url)
 );
 
@@ -94,8 +117,18 @@ def _migrate(conn) -> None:
     columns added later need an explicit ALTER TABLE for a DB file that
     already exists (e.g. `source`, added 2026-08-12)."""
     existing = {row[1] for row in conn.execute("PRAGMA table_info(job_details)")}
-    if "source" not in existing:
-        conn.execute("ALTER TABLE job_details ADD COLUMN source TEXT")
+    new_columns = {"source": "TEXT", "salary_min": "REAL", "salary_max": "REAL", "salary_currency": "TEXT"}
+    for column, column_type in new_columns.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE job_details ADD COLUMN {column} {column_type}")
+
+
+def _rename_legacy_tables(conn) -> None:
+    """Runs before SCHEMA, which would otherwise create an empty table under
+    the new name and strand the old rows (ai_prefilter -> ai_filter, 2026-11-23)."""
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "ai_prefilter" in tables and "ai_filter" not in tables:
+        conn.execute("ALTER TABLE ai_prefilter RENAME TO ai_filter")
 
 
 @contextmanager
@@ -104,6 +137,7 @@ def connect(db_path: str = DB_PATH):
     if parent:
         os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(db_path)
+    _rename_legacy_tables(conn)
     conn.executescript(SCHEMA)
     _migrate(conn)
     try:
@@ -137,8 +171,9 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
     decisions later without re-fetching anything."""
     conn.execute(
         "INSERT OR REPLACE INTO job_details "
-        "(url, company, title, location, posted_at, description, passed_filters, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(url, company, title, location, posted_at, description, passed_filters, source, "
+        "salary_min, salary_max, salary_currency) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             job.get("url", ""),
             job.get("company", ""),
@@ -148,6 +183,9 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
             job.get("description", ""),
             1 if passed_filters else 0,
             job.get("source", ""),
+            job.get("salary_min"),
+            job.get("salary_max"),
+            job.get("salary_currency"),
         ),
     )
 
@@ -216,15 +254,62 @@ def set_passed_filters(conn, url: str, passed: bool) -> None:
 
 def get_unevaluated_candidates(conn) -> list[dict]:
     """Jobs that passed the deterministic filters but haven't been scored
-    by the AI evaluation step yet — the input queue for ai_evaluate.py."""
+    by the AI evaluation step yet — the input queue for ai_evaluate.py.
+    Jobs ai_filter.py rejected are skipped; jobs it hasn't seen yet are
+    kept, so ai_evaluate.py still works without a Gemini key."""
     cur = conn.execute(
         "SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at, jd.description "
         "FROM job_details jd "
         "LEFT JOIN ai_evaluations ae ON jd.url = ae.url "
-        "WHERE jd.passed_filters = 1 AND ae.url IS NULL"
+        "LEFT JOIN ai_filter ap ON jd.url = ap.url "
+        "WHERE jd.passed_filters = 1 AND ae.url IS NULL AND (ap.passed IS NULL OR ap.passed = 1)"
     )
     keys = ["url", "company", "title", "location", "posted_at", "description"]
     return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+
+def get_ai_filter_queue(conn, include_screened: bool = False) -> list[dict]:
+    """Jobs that passed the deterministic filters and haven't been through
+    ai_filter.py yet — its input queue. include_screened re-queues the
+    already-screened ones too, for after its rules change."""
+    cur = conn.execute(
+        "SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at, jd.description "
+        "FROM job_details jd "
+        "LEFT JOIN ai_filter ap ON jd.url = ap.url "
+        "WHERE jd.passed_filters = 1 AND (? OR ap.url IS NULL)",
+        (include_screened,),
+    )
+    keys = ["url", "company", "title", "location", "posted_at", "description"]
+    return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+
+def get_unnotified_matches(conn) -> list[dict]:
+    """Jobs that passed both filters.py and ai_filter.py and haven't been
+    sent by notify_telegram.py yet, best stack fit first."""
+    cur = conn.execute(
+        "SELECT jd.url, jd.company, jd.title, jd.location, jd.source, "
+        "       jd.salary_min, jd.salary_max, jd.salary_currency, "
+        "       json_extract(ap.answers, '$.stack_fit.score') AS stack_fit "
+        "FROM job_details jd "
+        "JOIN ai_filter ap ON jd.url = ap.url "
+        "LEFT JOIN notified_jobs nj ON jd.url = nj.url "
+        "WHERE jd.passed_filters = 1 AND ap.passed = 1 AND nj.url IS NULL "
+        "ORDER BY stack_fit DESC"
+    )
+    keys = ["url", "company", "title", "location", "source", "salary_min", "salary_max", "salary_currency", "stack_fit"]
+    return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+
+def mark_notified(conn, urls: list[str]) -> None:
+    conn.executemany("INSERT OR IGNORE INTO notified_jobs (url) VALUES (?)", [(url,) for url in urls])
+
+
+def save_ai_filter(conn, url: str, rejection_reason: str | None, answers_json: str, model: str) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO ai_filter (url, passed, rejection_reason, answers, model) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (url, 0 if rejection_reason else 1, rejection_reason, answers_json, model),
+    )
 
 
 def save_evaluation(conn, url: str, evaluation: dict, model: str) -> None:
@@ -263,20 +348,3 @@ def get_user_status(conn, url: str) -> dict | None:
     if row is None:
         return None
     return dict(zip(["url", "my_status", "notes", "updated_at"], row))
-
-
-def iter_scored_candidates(conn):
-    """All evaluated candidates, best match first, joined with job_details
-    for display — used to write the scored CSV."""
-    cur = conn.execute(
-        "SELECT jd.company, jd.title, jd.location, jd.url, jd.posted_at, "
-        "       ae.match_score, ae.recommendation, ae.genuine_gaps, "
-        "       ae.transferable_strengths, ae.risk_factors "
-        "FROM ai_evaluations ae "
-        "JOIN job_details jd ON jd.url = ae.url "
-        "ORDER BY ae.match_score DESC"
-    )
-    keys = ["company", "title", "location", "url", "posted_at", "match_score",
-            "recommendation", "genuine_gaps", "transferable_strengths", "risk_factors"]
-    for row in cur.fetchall():
-        yield dict(zip(keys, row))

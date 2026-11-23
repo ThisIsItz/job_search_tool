@@ -12,6 +12,15 @@ from app import dedup
 from app import filters
 
 
+def rejection_reasons(job: dict) -> str:
+    reasons = []
+    if filters.title_is_excluded(job.get("title") or ""):
+        reasons.append("title")
+    if filters.posting_is_too_old(job.get("posted_at")):
+        reasons.append("age")
+    return "+".join(reasons)
+
+
 def show_one(url: str) -> None:
     with dedup.connect() as conn:
         details = dedup.get_details_by_url(conn, url)
@@ -24,14 +33,7 @@ def show_one(url: str) -> None:
         print(f"{k:16s}: {v}")
 
     if not details.get("passed_filters"):
-        reasons = []
-        if not filters.title_is_relevant(details.get("title") or ""):
-            reasons.append("title")
-        if not filters.location_is_allowed(details.get("location") or ""):
-            reasons.append("location")
-        if filters.jd_stack_mismatch(details.get("title") or "", details.get("description") or ""):
-            reasons.append("stack")
-        print(f"filtered out by: {'+'.join(reasons) or '? (check filters.py — none of the three checks tripped)'}")
+        print(f"filtered out by: {rejection_reasons(details) or '? (filters.py changed since it was stored)'}")
 
     print("-" * 60)
     print(details.get("description") or "(no description stored)")
@@ -40,21 +42,15 @@ def show_one(url: str) -> None:
 def show_rejected(limit: int = 20) -> None:
     with dedup.connect() as conn:
         cur = conn.execute(
-            "SELECT company, title, location, url, description FROM job_details "
+            "SELECT company, title, location, url, posted_at FROM job_details "
             "WHERE passed_filters = 0 ORDER BY fetched_at DESC LIMIT ?",
             (limit,),
         )
         rows = cur.fetchall()
 
-    for company, title, location, url, description in rows:
-        reasons = []
-        if not filters.title_is_relevant(title):
-            reasons.append("title")
-        if not filters.location_is_allowed(location):
-            reasons.append("location")
-        if filters.jd_stack_mismatch(title or "", description or ""):
-            reasons.append("stack")
-        print(f"[{'+'.join(reasons) or '?':16s}] {company:20s} | {title[:50]:50s} | {location}")
+    for company, title, location, url, posted_at in rows:
+        reasons = rejection_reasons({"title": title, "posted_at": posted_at})
+        print(f"[{reasons or '?':16s}] {company:20s} | {title[:50]:50s} | {location}")
 
 
 if __name__ == "__main__":

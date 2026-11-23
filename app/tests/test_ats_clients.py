@@ -94,22 +94,24 @@ def test_pagination_across_pages():
 
 
 def test_description_fetch_gated_to_promising_postings():
+    # Gated on a technical-looking title only; location is ai_filter.py's call.
     promising = _posting(id="1", name="Software Engineer", city="Calgary", region="AB", country="Canada")
     not_promising_title = _posting(id="2", name="Marketing Operations Manager")
-    not_promising_location = _posting(id="3", name="Software Engineer", city="Warsaw", region="", country="Poland")
+    promising_elsewhere = _posting(id="3", name="Software Engineer", city="Warsaw", region="", country="Poland")
 
     with patch("httpx.get", side_effect=[
-        _list_resp([promising, not_promising_title, not_promising_location]),
-        _detail_resp("Only fetched for the promising one"),
+        _list_resp([promising, not_promising_title, promising_elsewhere]),
+        _detail_resp("Fetched for a technical title"),
+        _detail_resp("Fetched for a technical title"),
     ]) as mock_get:
         jobs = ats_clients.fetch_smartrecruiters("TestCo", "testco")
 
-    assert mock_get.call_count == 2  # 1 list call + exactly 1 detail call
+    assert mock_get.call_count == 3  # 1 list call + 2 detail calls
     by_id = {j["url"].rsplit("/", 1)[-1]: j for j in jobs}
-    assert "Only fetched" in by_id["1"]["description"]
+    assert "Fetched" in by_id["1"]["description"]
     assert by_id["2"]["description"] == ""
-    assert by_id["3"]["description"] == ""
-    print("fetch_smartrecruiters: full-description fetch gated to promising postings only — OK")
+    assert "Fetched" in by_id["3"]["description"]
+    print("fetch_smartrecruiters: full-description fetch gated to technical titles only — OK")
 
 
 def test_description_fetch_failure_degrades_gracefully():

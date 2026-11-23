@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template for `make install-daily`: __REPO__ is replaced with this repo's path. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jobsearch.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd "__REPO__" &amp;&amp; /usr/bin/make daily &gt;&gt; data/daily.log 2&gt;&amp;1</string>
+  </array>
+  <!-- Every day at 09:00. If the Mac is asleep then, launchd runs it on wake. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+</dict>
+</plist>

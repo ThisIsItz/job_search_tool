@@ -1,20 +1,13 @@
-"""Deterministic pre-filters: title allowlist + exclusion keywords +
-location allowlist + JD stack dealbreakers.
+"""Deterministic filters: drop only what's obviously out (non-technical
+titles via exclusion keywords, stale postings) before ai_filter.py reads
+the rest. The keyword lists live in `filters.yaml` at the repo root.
 
-These run BEFORE any AI call — the whole point is to keep the AI-scored
-volume small and cheap. The actual keyword/pattern lists live in
-`filters.yaml` at the repo root (loaded below) so they can be edited
-without touching code.
-
-Design note (2026-08-11 rewrite): an EXCLUSION-only approach doesn't scale
-to a company like Affirm that posts hundreds of non-engineering roles
-(Analyst, Compliance, Marketing, Customer Success, Talent Brand, Sales
-Development...) — you can't blacklist your way out of that. So title
-filtering is allowlist-first: the title must look like an engineering
-role AT ALL before we even consider it, then a smaller exclusion list
-catches engineering-adjacent titles that aren't a fit (sales engineer,
-hardware/mechanical engineer, etc).
+Design note (2026-11-23): location/stack/role-type keyword rules used to
+live here too, but word matching dropped good jobs whose wording it didn't
+know ("Remoto", "Spain", "Junior UX/UI Designer", "SDE II"). ai_filter.py
+answers those questions from the full posting, so they moved there.
 """
+import html
 import re
 from datetime import datetime, timezone
 
@@ -33,12 +26,6 @@ _config = _load_config()
 PRIORITY_TITLE_KEYWORDS = _config["priority_title_keywords"]
 TITLE_ALLOW_KEYWORDS = _config["title_allow_keywords"]
 EXCLUSION_KEYWORDS = _config["exclusion_keywords"]
-LOCATION_ALLOW_PATTERNS = _config["location_allow_patterns"]
-STACK_DEALBREAKERS = _config["stack_dealbreakers"]
-STACK_CORE = _config["stack_core"]
-BACKEND_TITLE_KEYWORDS = _config["backend_title_keywords"]
-FULL_STACK_TITLE_KEYWORDS = _config["full_stack_title_keywords"]
-FRONTEND_SIGNAL_PATTERNS = _config["frontend_signal_patterns"]
 TRUNCATED_DESCRIPTION_MIN_CHARS = _config["truncated_description_min_chars"]
 MAX_POSTING_AGE_DAYS = _config["max_posting_age_days"]
 
@@ -58,12 +45,6 @@ def _compile_keyword_alternation(keywords: list[str], config_key: str) -> re.Pat
 _priority_re = _compile_keyword_alternation(PRIORITY_TITLE_KEYWORDS, "priority_title_keywords")
 _title_allow_re = _compile_keyword_alternation(TITLE_ALLOW_KEYWORDS, "title_allow_keywords")
 _exclusion_re = _compile_keyword_alternation(EXCLUSION_KEYWORDS, "exclusion_keywords")
-_location_res = [re.compile(p, re.IGNORECASE) for p in LOCATION_ALLOW_PATTERNS]
-_dealbreaker_res = [re.compile(p, re.IGNORECASE) for p in STACK_DEALBREAKERS]
-_core_res = [re.compile(p, re.IGNORECASE) for p in STACK_CORE]
-_backend_title_re = _compile_keyword_alternation(BACKEND_TITLE_KEYWORDS, "backend_title_keywords")
-_full_stack_title_re = _compile_keyword_alternation(FULL_STACK_TITLE_KEYWORDS, "full_stack_title_keywords")
-_frontend_signal_res = [re.compile(p, re.IGNORECASE) for p in FRONTEND_SIGNAL_PATTERNS]
 
 _html_tag_re = re.compile(r"<[^>]+>")
 
@@ -72,7 +53,9 @@ def strip_html(html_or_text: str) -> str:
     """Cheap HTML-to-text: good enough for keyword matching, not for display."""
     if not html_or_text:
         return ""
-    return _html_tag_re.sub(" ", html_or_text)
+    # Unescape twice: some ATS APIs (e.g. Greenhouse) entity-escape the markup itself, sometimes doubly.
+    unescaped = html.unescape(html.unescape(html_or_text))
+    return _html_tag_re.sub(" ", unescaped).replace("\xa0", " ")
 
 
 def looks_truncated(description: str) -> bool:
@@ -93,62 +76,19 @@ def looks_truncated(description: str) -> bool:
     return len(text) < TRUNCATED_DESCRIPTION_MIN_CHARS
 
 
-def title_is_relevant(title: str) -> bool:
+def title_is_excluded(title: str) -> bool:
+    """True for titles that are obviously not a fit (sales, marketing,
+    nursing...). An unambiguous engineering/design keyword overrides it, so
+    "Software Engineer, Automated Marketing" isn't dropped over "marketing"."""
     title = title or ""
-    if _priority_re.search(title):
-        # Unambiguous engineering title — e.g. "Software Engineer, Automated
-        # Marketing" — skip the exclusion list entirely so a word like
-        # "marketing" elsewhere in the title can't veto it.
-        return True
-    if not _title_allow_re.search(title):
-        return False
-    if _exclusion_re.search(title):
-        return False
-    return True
+    return bool(_exclusion_re.search(title)) and not _priority_re.search(title)
 
 
-def location_is_allowed(location: str) -> bool:
-    loc = location or ""
-    return any(p.search(loc) for p in _location_res)
-
-
-def jd_stack_mismatch(title: str, description: str) -> bool:
-    """True if the title+JD look like a dealbreaker-language role with no
-    mention of your own core stack. `title` is included because a title
-    can name a dealbreaker on its own (e.g. "Android Engineer (C++)") even
-    with no/thin description — only an entirely empty title+description
-    gets the benefit of the doubt."""
-    text = strip_html((title or "") + " " + (description or ""))
-    if not text.strip():
-        return False
-    has_dealbreaker = any(p.search(text) for p in _dealbreaker_res)
-    has_core = any(p.search(text) for p in _core_res)
-    return has_dealbreaker and not has_core
-
-
-def title_is_backend_only(title: str) -> bool:
-    """True if `title` signals a backend-only role — rejected
-    unconditionally, even for titles that would otherwise bypass
-    exclusion via priority_title_keywords. A title that also carries a
-    frontend signal (e.g. "Full Stack Engineer, Backend Focus") is
-    full-stack-shaped instead and left to full_stack_lacks_frontend_signal."""
+def title_looks_technical(title: str) -> bool:
+    """Only gates whether a fetcher spends an extra request on a job's full
+    description — never whether the job is kept (that's ai_filter.py's call)."""
     title = title or ""
-    if not _backend_title_re.search(title):
-        return False
-    return not any(p.search(title) for p in _frontend_signal_res)
-
-
-def full_stack_lacks_frontend_signal(title: str, description: str) -> bool:
-    """True if `title` reads as full-stack but the JD shows no real
-    frontend signal — treated as a backend role with a full-stack label.
-    Only meaningful when `description` is non-empty — an unknown JD gets
-    the benefit of the doubt, same convention as jd_stack_mismatch."""
-    if not _full_stack_title_re.search(title or ""):
-        return False
-    text = strip_html(description)
-    if not text:
-        return False
-    return not any(p.search(text) for p in _frontend_signal_res)
+    return bool(_title_allow_re.search(title)) and not title_is_excluded(title)
 
 
 def posting_is_too_old(posted_at: str | None) -> bool:
@@ -168,18 +108,11 @@ def posting_is_too_old(posted_at: str | None) -> bool:
 
 
 def passes_filters(job: dict) -> bool:
-    """job must have 'title' and 'location' keys (plain strings); may
-    optionally have a 'description' key (HTML or plain text)."""
-    if title_is_backend_only(job.get("title", "")):
-        return False
-    if not title_is_relevant(job.get("title", "")):
-        return False
-    if not location_is_allowed(job.get("location", "")):
-        return False
-    if jd_stack_mismatch(job.get("title", ""), job.get("description", "")):
+    """Only drops what's obviously out: a non-technical title or a stale
+    posting. Location, role type, seniority and stack are left to
+    ai_filter.py, which reads the whole posting instead of matching words."""
+    if title_is_excluded(job.get("title", "")):
         return False
     if posting_is_too_old(job.get("posted_at")):
-        return False
-    if full_stack_lacks_frontend_signal(job.get("title", ""), job.get("description", "")):
         return False
     return True

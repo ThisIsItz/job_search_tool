@@ -1,4 +1,4 @@
-"""MVP orchestrator: fetch -> filter -> dedup -> write candidates.csv
+"""MVP orchestrator: fetch -> filter -> dedup -> data/seen_jobs.sqlite3
 
 Pulls from two kinds of sources:
   - companies.yaml   — one ATS board per known company (precise, no noise)
@@ -20,9 +20,7 @@ Usage (run from the repo root):
 Or `make run` for an interactive prompt instead of remembering flags.
 """
 import argparse
-import csv
 import sys
-from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
@@ -33,7 +31,6 @@ from app import dedup
 from app import discover_companies
 from app import filters
 load_dotenv()
-OUTPUT_CSV = Path("data/candidates.csv")
 
 
 def load_yaml_list(path: str, key: str) -> list[dict]:
@@ -46,8 +43,7 @@ def process_jobs(jobs: list[dict], conn) -> list[dict]:
     every newly-seen job (whether it passed the content filters or not) so
     we never re-fetch/re-consider it on a future run. The full record
     (including the JD description) is always saved to job_details — see
-    dedup.save_details — so candidates.csv can stay lean and human-readable
-    while the description is still queryable later."""
+    dedup.save_details."""
     kept = []
     for job in jobs:
         if not dedup.is_new(conn, job):
@@ -91,24 +87,6 @@ def run(companies: list[dict], aggregators: list[dict]) -> list[dict]:
     return all_candidates
 
 
-CSV_COLUMNS = ["company", "title", "location", "url", "posted_at"]
-
-
-def write_csv(candidates: list[dict], path: Path = OUTPUT_CSV) -> None:
-    """Writes only CSV_COLUMNS, explicitly — deliberately NOT the whole job
-    dict. `description` (and anything else added to the job schema later)
-    lives in data/seen_jobs.sqlite3's job_details table instead; dumping a
-    multi-KB JD into a CSV cell makes the file unreadable in Excel/Sheets."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    file_exists = path.exists()
-    with open(path, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-        if not file_exists:
-            writer.writeheader()
-        for c in candidates:
-            writer.writerow(c)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", help="Only run a single company slug, for debugging")
@@ -127,9 +105,7 @@ if __name__ == "__main__":
         if not companies:
             sys.exit(f"No company with slug '{args.company}' in companies.yaml")
 
-    candidates = run(companies, aggregators)
-    write_csv(candidates)
-    print(f"Wrote {len(candidates)} new candidates to {OUTPUT_CSV}")
+    run(companies, aggregators)
 
     # Any Adzuna result whose full JD we fetched via a real Greenhouse/Lever
     # API call (see aggregator_clients.fetch_full_description) is a

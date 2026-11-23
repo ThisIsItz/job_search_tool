@@ -3,7 +3,7 @@
 # keyword + location, so they catch companies you haven't identified yet —
 # at the cost of more noise, which is exactly what filters.py exists for.
 #
-# type: one of "adzuna" | "remotive" | "remoteok" | "jobicy" | "weworkremotely"
+# type: one of "adzuna" | "remotive" | "remoteok" | "jobicy" | "weworkremotely" | "jobspy"
 # params: passed straight through to that aggregator's search API, EXCEPT
 #   max_pages (adzuna only) — a pipeline-level control consumed by
 #   fetch_adzuna() before building the request, not sent to Adzuna itself.
@@ -107,3 +107,69 @@ aggregators:
       per fetch (no pagination) — filters.yaml's title/stack rules do the
       real filtering, same as RemoteOK. Every listing is remote by
       construction.
+
+  - name: LinkedIn via JobSpy (Spain, remote frontend)
+    type: jobspy
+    params:
+      site_name: ["linkedin"]
+      search_term: "frontend engineer"
+      location: "Spain"
+      is_remote: true
+      hours_old: 72
+      results_wanted: 50
+    notes: >
+      Scrapes LinkedIn's public (logged-out) job search — no account, so no
+      account-ban risk. LinkedIn rate-limits by IP (429s / empty results)
+      somewhere around 10 pages, so keep results_wanted modest. Params go
+      straight to jobspy.scrape_jobs.
+
+  - name: Indeed via JobSpy (Spain, remote frontend)
+    type: jobspy
+    params:
+      site_name: ["indeed"]
+      search_term: "frontend engineer"
+      location: "Spain"
+      country_indeed: "spain"
+      is_remote: true
+      results_wanted: 50
+    notes: >
+      Indeed only honours ONE of hours_old / (job_type + is_remote) /
+      easy_apply per search — combining hours_old with is_remote returned 0
+      results live (2026-11-23), so hours_old is left out here. Dedup
+      already skips anything seen on a previous run.
+
+  # Spanish-language searches: Spanish employers often title roles
+  # "Desarrollador/a Frontend", which the English search terms above miss.
+  - name: Indeed via JobSpy (Spain, remote, desarrollador frontend)
+    type: jobspy
+    params:
+      site_name: ["indeed"]
+      search_term: "desarrollador frontend"
+      location: "Spain"
+      country_indeed: "spain"
+      is_remote: true
+      results_wanted: 50
+
+  - name: Indeed via JobSpy (Spain, remote, desarrollador full stack)
+    type: jobspy
+    params:
+      site_name: ["indeed"]
+      search_term: "desarrollador full stack"
+      location: "Spain"
+      country_indeed: "spain"
+      is_remote: true
+      results_wanted: 50
+
+  - name: LinkedIn via JobSpy (Spain, remote, desarrollador frontend)
+    type: jobspy
+    params:
+      site_name: ["linkedin"]
+      search_term: "desarrollador frontend"
+      location: "Spain"
+      is_remote: true
+      hours_old: 72
+      results_wanted: 25
+    notes: >
+      Smaller results_wanted than the English LinkedIn search above: both
+      hit LinkedIn from the same IP each run, and it starts returning 429s
+      after roughly 10 pages in total.

@@ -8,9 +8,12 @@ Same sandbox caveat as ats_clients.py: outbound calls to these domains were
 not testable live from this cloud dev environment (network allowlist), only
 via WebFetch during research. Run for real on a machine with normal internet.
 """
+import math
 import os
 import re
+import sys
 import xml.etree.ElementTree as ET
+from datetime import date
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -20,6 +23,11 @@ from app import filters
 USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
 FULL_JD_TIMEOUT = 10.0  # shorter: this is a best-effort extra request per job, don't let one slow host stall the run
+
+SALARY_PERIODS_PER_YEAR = {"yearly": 1, "monthly": 12, "weekly": 52, "daily": 260, "hourly": 2080}
+# Anything lower is junk, not a real annual salary (Adzuna returns e.g. min=0, max=5).
+MIN_PLAUSIBLE_ANNUAL_SALARY = 1000
+ADZUNA_CURRENCY_BY_COUNTRY = {"gb": "GBP", "es": "EUR", "de": "EUR", "fr": "EUR", "nl": "EUR", "us": "USD", "ca": "CAD"}
 
 # Companies discovered mid-run: fetch_full_description resolved an Adzuna
 # redirect to a Greenhouse/Lever slug we don't already track in
@@ -96,7 +104,7 @@ def fetch_via_browser(url: str, timeout_ms: int = 20000) -> str | None:
 
     Only called from fetch_full_description as a fallback when the plain
     request path found nothing useful — and that's only ever reached from
-    fetch_adzuna's already-gated call site (title/location passed, snippet
+    fetch_adzuna's already-gated call site (technical title, snippet
     looks truncated), so this doesn't fire for the bulk of raw results,
     only the smallish set that already look like real candidates. Still
     meaningfully slower than an httpx call (browser launch + full page
@@ -238,6 +246,39 @@ def fetch_full_description(redirect_url: str) -> dict:
     return {"description": browser_text, "ats": None, "slug": None}
 
 
+def _to_number(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(number) else number
+
+
+def annual_salary(min_amount: object, max_amount: object, currency: object, period: object = "yearly") -> dict:
+    """Normalizes a source's salary fields to annual salary_min/salary_max/
+    salary_currency. Returns {} when there's no usable salary, so callers can
+    just `**` it into the job dict."""
+    periods_per_year = SALARY_PERIODS_PER_YEAR.get(str(period or "yearly").lower())
+    if periods_per_year is None:
+        return {}
+
+    def to_annual(amount: object) -> float | None:
+        number = _to_number(amount)
+        if number is None:
+            return None
+        annual = number * periods_per_year
+        return annual if annual >= MIN_PLAUSIBLE_ANNUAL_SALARY else None
+
+    salary_min, salary_max = to_annual(min_amount), to_annual(max_amount)
+    if salary_min is None and salary_max is None:
+        return {}
+    return {
+        "salary_min": salary_min,
+        "salary_max": salary_max,
+        "salary_currency": currency.strip().upper() if isinstance(currency, str) and currency.strip() else None,
+    }
+
+
 def fetch_adzuna(params: dict) -> list[dict]:
     """Adzuna paginates — one page is only `results_per_page` (default 50)
     results, and the free tier's ranking means good matches can be a few
@@ -281,16 +322,10 @@ def fetch_adzuna(params: dict) -> list[dict]:
 
             description = snippet
             company_name = (j.get("company") or {}).get("display_name", "Unknown")
-            # Only worth the extra request for jobs that already look like
-            # real candidates (title+location pass) AND whose snippet is
-            # actually thin — most of Adzuna's ~2000 raw results get
-            # dropped by title/location alone, so gating on that first
-            # keeps this from turning into ~2000 extra HTTP requests a run.
-            if (
-                filters.title_is_relevant(title)
-                and filters.location_is_allowed(loc)
-                and filters.looks_truncated(snippet)
-            ):
+            # Only worth the extra request for technical-looking titles whose
+            # snippet is actually thin, so a run doesn't make an extra HTTP
+            # request for every raw Adzuna result.
+            if filters.title_looks_technical(title) and filters.looks_truncated(snippet):
                 full = fetch_full_description(redirect_url)
                 if full["description"] and len(full["description"]) > len(snippet):
                     description = full["description"]
@@ -308,10 +343,7 @@ def fetch_adzuna(params: dict) -> list[dict]:
             # 2026-09-22. So: normalize the same way as
             # fetch_remoteok/fetch_jobicy/fetch_weworkremotely — if "remote"
             # shows up in the title or description text, fold it into the
-            # location string so filters.location_is_allowed() (which only
-            # ever looks at this field) doesn't drop a genuinely remote
-            # posting just because Adzuna's location field is a bare
-            # country/city name.
+            # location string so the board shows it at a glance.
             normalized_loc = loc
             if "remote" not in loc.lower() and "remote" in (title + " " + description).lower():
                 normalized_loc = f"Remote - {loc}" if loc else "Remote"
@@ -323,6 +355,9 @@ def fetch_adzuna(params: dict) -> list[dict]:
                 "url": redirect_url,
                 "posted_at": j.get("created"),
                 "description": description,
+                # salary_is_predicted == "1" is Adzuna's own estimate, not the employer's figure
+                **({} if j.get("salary_is_predicted") == "1" else annual_salary(
+                    j.get("salary_min"), j.get("salary_max"), ADZUNA_CURRENCY_BY_COUNTRY.get(country))),
             })
 
         if len(results) < results_per_page:
@@ -355,9 +390,7 @@ def fetch_remoteok(params: dict) -> list[dict]:
     this always returns the latest ~100 postings and leaves title/stack
     filtering to filters.py. Every RemoteOK listing is remote by
     construction, but the `location` field is often blank or just a hiring
-    org's home city — normalized to always carry the word "remote" so
-    filters.location_is_allowed() doesn't drop real remote jobs over a
-    missing/ambiguous location string."""
+    org's home city — normalized to always carry the word "remote"."""
     url = "https://remoteok.com/api"
     resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
     resp.raise_for_status()
@@ -375,6 +408,7 @@ def fetch_remoteok(params: dict) -> list[dict]:
             "url": j.get("url") or j.get("apply_url", ""),
             "posted_at": j.get("date"),
             "description": j.get("description", ""),
+            **annual_salary(j.get("salary_min"), j.get("salary_max"), "USD"),  # RemoteOK salaries are USD/year
         })
     return jobs
 
@@ -401,6 +435,7 @@ def fetch_jobicy(params: dict) -> list[dict]:
             "url": j.get("url", ""),
             "posted_at": j.get("pubDate"),
             "description": j.get("jobDescription", ""),  # full HTML per Jobicy's docs
+            **annual_salary(j.get("salaryMin"), j.get("salaryMax"), j.get("salaryCurrency"), j.get("salaryPeriod")),
         })
     return jobs
 
@@ -446,12 +481,53 @@ def fetch_weworkremotely(params: dict) -> list[dict]:
     return jobs
 
 
+def _jobspy_text(value: object) -> str:
+    # pandas fills missing cells with NaN (a float), not None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def fetch_jobspy(params: dict) -> list[dict]:
+    """LinkedIn/Indeed/etc via python-jobspy, which scrapes each site's
+    public (logged-out) job search — no account involved. `params` go
+    straight to jobspy.scrape_jobs. fetch_description defaults to True
+    because LinkedIn returns no JD text otherwise, which would leave
+    ai_filter.py and ai_evaluate.py with nothing to judge.
+    Remote rows get "Remote" folded into location, same as fetch_remoteok."""
+    from jobspy import scrape_jobs  # lazy: heavy import (pandas), only needed when a jobspy entry is configured
+
+    df = scrape_jobs(**{"fetch_description": True, "enforce_annual_salary": True, "verbose": 0, **params})
+    errors = df.attrs.get("errors", {})
+    if errors and df.empty:
+        raise RuntimeError(f"jobspy returned no jobs, site errors: {errors}")
+    for site, error in errors.items():
+        print(f"[WARN] jobspy {site}: {error}", file=sys.stderr)
+
+    jobs = []
+    for j in df.to_dict("records"):
+        location = _jobspy_text(j.get("location"))
+        if j.get("is_remote") is True and "remote" not in location.lower():
+            location = f"Remote - {location}" if location else "Remote"
+        date_posted = j.get("date_posted")
+        jobs.append({
+            "company": _jobspy_text(j.get("company")) or "Unknown",
+            "title": _jobspy_text(j.get("title")),
+            "location": location,
+            "url": _jobspy_text(j.get("job_url")),
+            "posted_at": date_posted.isoformat() if isinstance(date_posted, date) else None,
+            "description": _jobspy_text(j.get("description")),
+            "source": _jobspy_text(j.get("site")) or "jobspy",
+            **annual_salary(j.get("min_amount"), j.get("max_amount"), j.get("currency")),
+        })
+    return jobs
+
+
 FETCHERS = {
     "adzuna": fetch_adzuna,
     "remotive": fetch_remotive,
     "remoteok": fetch_remoteok,
     "jobicy": fetch_jobicy,
     "weworkremotely": fetch_weworkremotely,
+    "jobspy": fetch_jobspy,
 }
 
 
@@ -461,5 +537,5 @@ def fetch_aggregator(aggregator: dict) -> list[dict]:
         raise ValueError(f"No fetcher for aggregator type: {aggregator['type']}")
     jobs = fetcher(aggregator.get("params", {}))
     for j in jobs:
-        j["source"] = aggregator["type"]
+        j.setdefault("source", aggregator["type"])  # a fetcher may set a more specific one (jobspy: the site)
     return jobs

@@ -7,6 +7,8 @@ type ToolbarProps = {
   onMyStatusFilterChange: (value: string) => void;
   search: string;
   onSearchChange: (value: string) => void;
+  minSalaryEur: string;
+  onMinSalaryEurChange: (value: string) => void;
   count: number;
   total: number;
   onRefresh: () => void;
@@ -18,6 +20,7 @@ const Toolbar = ({
   aiStatusFilter, onAiStatusFilterChange,
   myStatusFilter, onMyStatusFilterChange,
   search, onSearchChange,
+  minSalaryEur, onMinSalaryEurChange,
   count, total, onRefresh, onFetchNew, fetching,
 }: ToolbarProps) => {
   return (
@@ -49,6 +52,17 @@ const Toolbar = ({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="company or title..."
+        />
+      </label>
+      <label title="Jobs without a salary are always shown. Other currencies are converted approximately.">
+        Min salary (€/yr)
+        <input
+          type="number"
+          min={0}
+          step={5000}
+          value={minSalaryEur}
+          onChange={(e) => onMinSalaryEurChange(e.target.value)}
+          placeholder="any"
         />
       </label>
       <div className="spacer" />

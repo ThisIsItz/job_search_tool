@@ -1,13 +1,13 @@
-# Deterministic pre-filter rules, read by app/filters.py. Edit these lists
-# directly as you refine what "in scope" means for you — no code changes
-# needed. See app/filters.py's module docstring for how they're applied.
+# Deterministic filter rules, read by app/filters.py. Deliberately minimal:
+# they only drop what's obviously out (non-technical titles, stale postings).
+# Location, remote/hybrid, role type, seniority and stack are judged by
+# app/ai_filter.py from the full posting instead.
 
-# Unambiguous engineering-role title signals. If the title matches one of
-# these, it's kept regardless of exclusion_keywords below — e.g. "Software
-# Engineer, Automated Marketing" shouldn't get dropped just because
-# "marketing" is also in exclusion_keywords. Keep this list short and
-# genuinely unambiguous (don't add anything from title_allow_keywords
-# that's also ambiguous, like bare "engineer" or "platform").
+# Unambiguous engineering/design title signals. If the title matches one of
+# these, exclusion_keywords below don't apply — e.g. "Software Engineer,
+# Automated Marketing" shouldn't get dropped just because "marketing" is
+# also in exclusion_keywords. Keep this list short and genuinely
+# unambiguous (not bare "engineer", or "Sales Engineer" would slip through).
 priority_title_keywords:
   - "software engineer"
   - "software developer"
@@ -18,8 +18,15 @@ priority_title_keywords:
   - "frontend"
   - "front-end"
   - "front end"
+  - "designer"
+  - "desarrollador"
+  - "desarrolladora"
+  - "programador"
+  - "programadora"
 
-# Title must match at least one of these to be considered at all.
+# Titles that look technical. NOT used to drop jobs — only to decide which
+# jobs are worth an extra request for their full description (Adzuna,
+# SmartRecruiters), so a title missing here still reaches the AI filter.
 title_allow_keywords:
   - "engineer"        # covers Engineer / Engineering Manager / Software Engineering
   - "engineering"
@@ -41,9 +48,19 @@ title_allow_keywords:
   - "platform"
   - "tech lead"
   - "technical lead"
+  - "designer"
+  - "technical staff"
+  - "sde"
+  - "technologist"
+  - "desarrollador"
+  - "desarrolladora"
+  - "programador"
+  - "programadora"
+  - "ingeniero"
+  - "ingeniera"
 
-# Even if the title matched the allowlist above, drop it if it also
-# matches one of these — engineering-adjacent titles that aren't a fit.
+# A job whose title matches one of these is dropped (unless it also matches
+# priority_title_keywords) — titles that are obviously not a fit.
 exclusion_keywords:
   - "accountant"
   - "accounting"
@@ -89,97 +106,6 @@ exclusion_keywords:
   - "copywriting"
   - "compliance"
   - "product marketing"
-
-# Location doesn't matter beyond "must be remote" — worldwide is fine
-# (contractor/part-time roles are fine too; nothing filters on employment
-# type). Matches any location string that signals remote work at all,
-# with no country/region qualifier required.
-location_allow_patterns:
-  - '\bremote\b'
-  - '\banywhere\b'
-  - '\bworldwide\b'
-  - '\bglobal\b'
-  - '\bwork from home\b'
-  - '\bwfh\b'
-
-# EDIT ME FIRST (along with stack_core below): JD stack dealbreakers — if
-# the description clearly requires one of these languages/frameworks and
-# does NOT also mention anything from stack_core, treat it as a mismatch.
-# Ships assuming a Python/JS candidate who wants to exclude
-# Java/C#/.NET/etc — if your own stack includes one of these "dealbreaker"
-# languages, move it down into stack_core instead, or this will reject
-# roles in your own stack. Only runs when a description is
-# available. Word-boundary matched to avoid e.g. "java" matching
-# "javascript". Deliberately NOT including bare "go" — too ambiguous
-# ("go-to-market", "go live", etc.); "golang" below covers it, and most Go
-# postings also say "Golang" or "Go (Golang)" somewhere in the JD.
-# NOTE: c#/c++ use `(?!\w)` instead of a trailing `\b` — `\b` only matches
-# between a word and non-word character, and `#`/`+` are themselves
-# non-word, so `\bc#\b`/`\bc\+\+\b` never matched anything real (confirmed
-# live 2026-10-01: zero matches against "C# developer", "(C++)", etc.)
-stack_dealbreakers:
-  - '\bjava\b'
-  - '\bc#(?!\w)'
-  - '\.net\b'
-  - '\bgolang\b'
-  - '\bruby\b'
-  - '\brails\b'
-  - '\bphp\b'
-  - '\bkotlin\b'
-  - '\bswift\b'
-  - '\bscala\b'
-  - '\bc\+\+(?!\w)'
-
-# Your own core stack — if the JD mentions any of these, a stack dealbreaker
-# match above is ignored (the role likely uses both, or the dealbreaker
-# keyword is a false positive).
-stack_core:
-  - '\bpython\b'
-  - '\bfastapi\b'
-  - '\bdjango\b'
-  - '\bflask\b'
-  - '\bjavascript\b'
-  - '\btypescript\b'
-  - '\breact\b'
-  - '\bnode(?:\.?js)?\b'
-  - '\bvue\b'
-  - '\bnext\.?js\b'
-
-# Backend-only titles are rejected unconditionally, even if they'd
-# otherwise match priority_title_keywords (e.g. "Senior Software Engineer,
-# Backend" contains "software engineer") — unless the title itself also
-# carries a frontend signal (frontend_signal_patterns below), in which
-# case it's full-stack-shaped and handled by the full-stack check instead.
-backend_title_keywords:
-  - "backend"
-  - "back-end"
-  - "back end"
-
-# A title matching "full stack"/"fullstack"/"full-stack" only passes if
-# the JD also shows a real frontend signal from this list — otherwise it's
-# treated as a backend role with a full-stack label tacked on. Only runs
-# when a description is available (unknown JD -> benefit of the doubt,
-# don't reject).
-full_stack_title_keywords:
-  - "full stack"
-  - "fullstack"
-  - "full-stack"
-
-frontend_signal_patterns:
-  - '\breact\b'
-  - '\bvue\b'
-  - '\bangular\b'
-  - '\bfront[- ]?end\b'
-  - '\bcss\b'
-  - '\bhtml\b'
-  - '\btailwind\b'
-  - '\bredux\b'
-  - '\bzustand\b'
-  - '\btanstack\b'
-  - '\bdesign system\b'
-  - '\buser interface\b'
-  - '\bux\b'
-  - '\bnext\.?js\b'
 
 # Below this many characters, a JD is treated as a short aggregator teaser
 # snippet rather than a full posting (see app/filters.py's looks_truncated).

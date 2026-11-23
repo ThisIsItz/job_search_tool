@@ -5,13 +5,12 @@ Every function returns a list of plain dicts with a common shape:
      "posted_at": str|None, "description": str}
 
 `description` is HTML or plain text, whatever the ATS gives us, and is
-consumed by filters.jd_stack_mismatch() for the JD-based stack dealbreaker
-check. It's fetched from the SAME request as the listing wherever the ATS
+read by ai_filter.py to judge stack fit, work mode and eligibility. It's fetched from the SAME request as the listing wherever the ATS
 supports that (Greenhouse ?content=true, Ashby/Lever include it by
 default) — no extra per-job request needed, so this doesn't multiply your
 call volume. Workable's widget API may or may not include it depending on
 account; if absent, `description` is just "" and the stack check is
-skipped for that job (title/location filters still apply).
+left to the AI filter to judge from the title alone.
 
 NOTE ON THIS SANDBOX: outbound HTTP to arbitrary domains (e.g.
 boards-api.greenhouse.io) is blocked by this cloud environment's network
@@ -190,13 +189,11 @@ def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
 
             description = ""
             # Only worth the extra per-job request (see
-            # _fetch_smartrecruiters_description) for postings that
-            # already look like real candidates — same gating idea as
-            # aggregator_clients.fetch_adzuna uses for its full-JD fetch,
+            # _fetch_smartrecruiters_description) for technical-looking
+            # titles — same gating idea as aggregator_clients.fetch_adzuna,
             # so a company with hundreds of postings doesn't turn into
-            # hundreds of extra requests for roles that'd get filtered
-            # out on title/location alone anyway.
-            if posting_id and filters.title_is_relevant(title) and filters.location_is_allowed(loc_str):
+            # hundreds of extra requests.
+            if posting_id and filters.title_looks_technical(title):
                 description = _fetch_smartrecruiters_description(slug, posting_id)
 
             jobs.append({

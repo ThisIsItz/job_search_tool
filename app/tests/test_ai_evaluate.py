@@ -1,5 +1,5 @@
 """Sanity test for ai_evaluate.py's non-API-calling parts: profile loading,
-prompt construction, and the DB round-trip (save_evaluation -> CSV output).
+prompt construction, and the DB round-trip (save_evaluation -> queue).
 Doesn't call Anthropic — that needs a real API key and costs money, so it's
 excluded from this offline test. Run with: python -m app.tests.test_ai_evaluate
 
@@ -66,8 +66,7 @@ def main():
     print("Truncated-description flagging OK")
 
     # --- DB round trip: save a fake evaluation (as if the API had returned
-    # it), confirm it shows up in the unevaluated-queue exclusion and in
-    # the scored CSV output ---
+    # it), confirm it leaves the unevaluated queue ---
     with dedup.connect(TEST_DB) as conn:
         dedup.save_details(conn, job, passed_filters=True)
         queue = dedup.get_unevaluated_candidates(conn)
@@ -84,17 +83,9 @@ def main():
 
         queue_after = dedup.get_unevaluated_candidates(conn)
         assert len(queue_after) == 0, "job should no longer be in the unevaluated queue after scoring"
-
-        total = ai_evaluate.write_csv(conn, path=__import__("pathlib").Path("data/test_scored.csv"))
-        assert total == 1
-
-    with open("data/test_scored.csv") as f:
-        content = f.read()
-    assert "match_score" in content and "82" in content and "apply" in content
-    print("DB round-trip + CSV output OK")
+    print("DB round-trip OK")
 
     os.remove(TEST_DB)
-    os.remove("data/test_scored.csv")
     print("\nAll assertions passed.")
 
 

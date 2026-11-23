@@ -5,6 +5,13 @@ import {Job, SaveState, SortKey} from "@/app/types";
 import Toolbar from "@/app/components/Toolbar";
 import JobsTable from "@/app/components/JobsTable";
 import JobDetailPanel from "@/app/components/JobDetailPanel";
+import {annualSalaryInEur} from "@/lib/salary";
+
+const NUMERIC_SORT_KEYS: SortKey[] = ["match_score", "stack_fit", "salary"];
+
+function sortValue(job: Job, key: SortKey): unknown {
+  return key === "salary" ? annualSalaryInEur(job) : job[key];
+}
 
 export default function Page() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -14,8 +21,9 @@ export default function Page() {
   const [aiStatusFilter, setAiStatusFilter] = useState("all");
   const [myStatusFilter, setMyStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [minSalaryEur, setMinSalaryEur] = useState("");
 
-  const [sortKey, setSortKey] = useState<SortKey>("posted_at");
+  const [sortKey, setSortKey] = useState<SortKey>("stack_fit");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
@@ -64,7 +72,7 @@ export default function Page() {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "match_score" || key === "posted_at" ? "desc" : "asc");
+      setSortDir(NUMERIC_SORT_KEYS.includes(key) || key === "posted_at" ? "desc" : "asc");
     }
   }
 
@@ -74,6 +82,8 @@ export default function Page() {
       if (myStatusFilter !== "all") {
         if (myStatusFilter === "none" ? j.my_status : j.my_status !== myStatusFilter) return false;
       }
+      const salaryEur = annualSalaryInEur(j);
+      if (minSalaryEur && salaryEur !== null && salaryEur < Number(minSalaryEur)) return false;
       if (search) {
         const hay = `${j.company} ${j.title}`.toLowerCase();
         if (!hay.includes(search.toLowerCase())) return false;
@@ -82,9 +92,9 @@ export default function Page() {
     });
 
     r = [...r].sort((a, b) => {
-      let av: any = a[sortKey];
-      let bv: any = b[sortKey];
-      if (sortKey === "match_score") {
+      let av: any = sortValue(a, sortKey);
+      let bv: any = sortValue(b, sortKey);
+      if (NUMERIC_SORT_KEYS.includes(sortKey)) {
         av = av ?? -1;
         bv = bv ?? -1;
       } else {
@@ -96,7 +106,7 @@ export default function Page() {
       return 0;
     });
     return r;
-  }, [jobs, aiStatusFilter, myStatusFilter, search, sortKey, sortDir]);
+  }, [jobs, aiStatusFilter, myStatusFilter, search, minSalaryEur, sortKey, sortDir]);
 
   // Derived from `jobs` by url (rather than a frozen snapshot object) so
   // the open panel reflects the latest score/description/status after a
@@ -153,6 +163,8 @@ export default function Page() {
         onMyStatusFilterChange={setMyStatusFilter}
         search={search}
         onSearchChange={setSearch}
+        minSalaryEur={minSalaryEur}
+        onMinSalaryEurChange={setMinSalaryEur}
         count={rows.length}
         total={jobs.length}
         onRefresh={load}
