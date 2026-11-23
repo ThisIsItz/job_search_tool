@@ -24,27 +24,48 @@ def no_sleep():
 def test_format_job_escapes_html_and_shows_details():
     text = notify_telegram.format_job(JOB)
     assert text.splitlines() == [
-        "<b>Senior &lt;Frontend&gt; Engineer</b>",
-        "Acme &amp; Co · Remote - Spain",
-        "Stack fit 3.5/4 · EUR 60,000–80,000",
-        "Remote · Staff plus · Frontend",
-        "LinkedIn",
+        "⭐ <b>Senior &lt;Frontend&gt; Engineer</b>",
+        "🏢 Acme &amp; Co",
+        "📍 Remote - Spain",  # work mode already in the location, not repeated
+        "🎯 Stack fit ●●●○ 3.5",
+        "💰 €60K–80K",
+        "🧩 Staff plus · Frontend · via LinkedIn",
     ]
 
 
+def test_format_job_adds_work_mode_missing_from_location():
+    text = notify_telegram.format_job({**JOB, "work_mode": "hybrid", "location": "Bangkok, Thailand"})
+    assert "📍 Hybrid · Bangkok, Thailand" in text.splitlines()
+
+
 def test_format_job_skips_missing_details():
-    job = {**JOB, "stack_fit": None, "salary_min": None, "salary_max": None,
+    job = {**JOB, "stack_fit": None, "salary_min": None, "salary_max": None, "location": "",
            "work_mode": None, "seniority": None, "role_type": None, "source": "greenhouse"}
-    assert notify_telegram.format_job(job).splitlines()[2:] == ["Greenhouse"]
+    assert notify_telegram.format_job(job).splitlines()[2:] == ["🧩 via Greenhouse"]
+
+
+def test_salary_is_abbreviated():
+    salary = lambda low, high, currency: notify_telegram.format_salary(
+        {"salary_min": low, "salary_max": high, "salary_currency": currency})
+    assert salary(70000, 95000, "EUR") == "€70K–95K"
+    assert salary(145600, 145600, "USD") == "$146K"
+    assert salary(None, 1_200_000, "THB") == "1.2M THB"
+    assert salary(None, None, "EUR") is None
+
+
+def test_stack_fit_bar_rounds_to_four_slots():
+    assert notify_telegram.stack_fit_bar(3.8) == "●●●●"
+    assert notify_telegram.stack_fit_bar(2.4) == "●●○○"
+    assert notify_telegram.stack_fit_bar(0.2) == "○○○○"
 
 
 def test_buttons_add_apply_only_for_a_distinct_direct_link():
     assert notify_telegram.build_buttons(JOB) == {
-        "inline_keyboard": [[{"text": "View job", "url": "https://example.com/jobs/1"}]]}
+        "inline_keyboard": [[{"text": "🔗 View job", "url": "https://example.com/jobs/1"}]]}
     with_direct = notify_telegram.build_buttons({**JOB, "apply_url": "https://acme.com/apply/1"})
-    assert [b["text"] for b in with_direct["inline_keyboard"][0]] == ["View job", "Apply"]
+    assert [b["text"] for b in with_direct["inline_keyboard"][0]] == ["🔗 View job", "✅ Apply"]
     same_link = notify_telegram.build_buttons({**JOB, "apply_url": JOB["url"]})
-    assert [b["text"] for b in same_link["inline_keyboard"][0]] == ["View job"]
+    assert [b["text"] for b in same_link["inline_keyboard"][0]] == ["🔗 View job"]
 
 
 def _save_screened(conn, url: str, stack_fit: float = 3.0, passed: bool = True) -> None:
@@ -108,3 +129,21 @@ def test_failed_send_keeps_the_job_for_next_run(tmp_path):
              pytest.raises(RuntimeError):
             notify_telegram.send_new_matches(conn, "token", "chat")
         assert len(dedup.get_notification_queue(conn, notify_telegram.MAX_PENDING_DAYS)) == 1
+
+
+def test_telegram_call_retries_a_dropped_connection():
+    import httpx
+
+    ok = httpx.Response(200, json={"ok": True, "result": {}}, request=httpx.Request("POST", "https://x"))
+    with patch("app.notify_telegram.httpx.post", side_effect=[httpx.ConnectError("SSL EOF"), ok]) as mock_post:
+        assert notify_telegram.call_telegram("token", "sendMessage", chat_id="chat", text="hi")["ok"]
+    assert mock_post.call_count == 2
+
+
+def test_telegram_call_gives_up_after_max_attempts():
+    import httpx
+
+    with patch("app.notify_telegram.httpx.post", side_effect=httpx.ConnectError("SSL EOF")) as mock_post, \
+         pytest.raises(httpx.ConnectError):
+        notify_telegram.call_telegram("token", "sendMessage", chat_id="chat", text="hi")
+    assert mock_post.call_count == notify_telegram.MAX_ATTEMPTS

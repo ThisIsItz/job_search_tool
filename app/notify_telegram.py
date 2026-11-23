@@ -38,49 +38,83 @@ MAX_JOBS_PER_RUN = 10
 MAX_PENDING_DAYS = 7
 # Telegram asks bots to stay around one message per second per chat.
 SECONDS_BETWEEN_MESSAGES = 1.0
+MAX_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 3.0
 SOURCE_LABEL = {"linkedin": "LinkedIn", "indeed": "Indeed", "remoteok": "RemoteOK", "weworkremotely": "WeWorkRemotely"}
+
+
+CURRENCY_SYMBOL = {"EUR": "€", "GBP": "£", "USD": "$"}
+STACK_FIT_MAX = 4
+
+
+def _short_amount(amount: float) -> str:
+    if amount >= 1_000_000:
+        return f"{amount / 1_000_000:.1f}M"
+    return f"{amount / 1000:.0f}K"
 
 
 def format_salary(job: dict) -> str | None:
     low, high, currency = job.get("salary_min"), job.get("salary_max"), job.get("salary_currency") or ""
     if low is None and high is None:
         return None
+    symbol = CURRENCY_SYMBOL.get(currency)
+    prefix, suffix = (symbol, "") if symbol else ("", f" {currency}".rstrip())
     if low is None or high is None or low == high:
-        return f"{currency} {(low or high):,.0f}".strip()
-    return f"{currency} {low:,.0f}–{high:,.0f}".strip()
+        return f"{prefix}{_short_amount(low or high)}{suffix}"
+    return f"{prefix}{_short_amount(low)}–{_short_amount(high)}{suffix}"
 
 
-def _joined(parts: list[str | None]) -> str:
-    return html.escape(" · ".join(p for p in parts if p))
+def stack_fit_bar(score: float) -> str:
+    filled = max(0, min(STACK_FIT_MAX, round(score)))
+    return "●" * filled + "○" * (STACK_FIT_MAX - filled)
+
+
+def _label(value: str | None) -> str | None:
+    return value.replace("_", " ").capitalize() if value else None
 
 
 def format_job(job: dict) -> str:
+    location = job.get("location") or ""
+    work_mode = _label(job.get("work_mode"))
+    if work_mode and work_mode.lower() not in location.lower():
+        location = f"{work_mode} · {location}" if location else work_mode
     source = job.get("source") or ""
-    fit_and_pay = [
-        f"Stack fit {job['stack_fit']:.1f}/4" if job.get("stack_fit") is not None else None,
-        format_salary(job),
-    ]
-    kind = [(job.get(key) or "").replace("_", " ").capitalize() or None
-            for key in ("work_mode", "seniority", "role_type")]
+    source_label = SOURCE_LABEL.get(source, source.capitalize())
+    kind = " · ".join(filter(None, [_label(job.get("seniority")), _label(job.get("role_type")),
+                                     f"via {source_label}" if source_label else None]))
+    stack_fit = job.get("stack_fit")
+    salary = format_salary(job)
     lines = [
-        f"<b>{html.escape(job['title'])}</b>",
-        _joined([job["company"], job.get("location")]),
-        _joined(fit_and_pay),
-        _joined(kind),
-        _joined([SOURCE_LABEL.get(source, source.capitalize()) or None]),
+        f"⭐ <b>{html.escape(job['title'])}</b>",
+        f"🏢 {html.escape(job['company'])}",
+        f"📍 {html.escape(location)}" if location else None,
+        f"🎯 Stack fit {stack_fit_bar(stack_fit)} {stack_fit:.1f}" if stack_fit is not None else None,
+        f"💰 {html.escape(salary)}" if salary else None,
+        f"🧩 {html.escape(kind)}" if kind else None,
     ]
     return "\n".join(line for line in lines if line)
 
 
 def build_buttons(job: dict) -> dict:
-    buttons = [{"text": "View job", "url": job["url"]}]
+    buttons = [{"text": "🔗 View job", "url": job["url"]}]
     if job.get("apply_url") and job["apply_url"] != job["url"]:
-        buttons.append({"text": "Apply", "url": job["apply_url"]})
+        buttons.append({"text": "✅ Apply", "url": job["apply_url"]})
     return {"inline_keyboard": [buttons]}
 
 
+def _post_with_retries(url: str, params: dict) -> httpx.Response:
+    # Connections to Telegram occasionally drop mid-handshake (seen live: SSL UNEXPECTED_EOF).
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return httpx.post(url, json=params, timeout=TIMEOUT)
+        except httpx.TransportError:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            time.sleep(RETRY_DELAY_SECONDS * attempt)
+
+
 def call_telegram(token: str, method: str, **params) -> dict:
-    resp = httpx.post(TELEGRAM_API.format(token=token, method=method), json=params, timeout=TIMEOUT)
+    resp = _post_with_retries(TELEGRAM_API.format(token=token, method=method), params)
     resp.raise_for_status()
     data = resp.json()
     if not data.get("ok"):
