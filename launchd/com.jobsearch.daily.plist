@@ -9,7 +9,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
-    <string>cd "__REPO__" &amp;&amp; /usr/bin/make daily &gt;&gt; data/daily.log 2&gt;&amp;1</string>
+    <string>cd "__REPO__" &amp;&amp; mkdir -p data/logs &amp;&amp; /usr/bin/make daily &gt;&gt; "data/logs/daily-$(date +%F).log" 2&gt;&amp;1</string>
   </array>
   <!-- Every day at 09:00 (US afternoon + early Europe postings) and 18:00
        (European day + US morning). If the Mac is asleep then, launchd runs it on wake. -->

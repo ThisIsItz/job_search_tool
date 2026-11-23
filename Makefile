@@ -62,10 +62,15 @@ apply:
 
 # Non-interactive fetch -> filter -> AI filter -> Telegram digest, for the
 # daily schedule. If any step fails, a failure notice goes to Telegram instead.
+# launchd writes its output to data/logs/daily-<date>.log; logs older than
+# LOG_RETENTION_DAYS are deleted at the start of each run.
+LOG_RETENTION_DAYS := 14
+
 daily:
 	@date
-	@{ .venv/bin/python -m app.main && .venv/bin/python -m app.notify_telegram; } || \
-	{ .venv/bin/python -m app.notify_telegram --failure "see data/daily.log"; exit 1; }
+	@find data/logs -name 'daily-*.log' -mtime +$(LOG_RETENTION_DAYS) -delete
+	@{ .venv/bin/python -u -m app.main && .venv/bin/python -u -m app.notify_telegram; } || \
+	{ .venv/bin/python -m app.notify_telegram --failure "see data/logs/daily-$$(date +%F).log"; exit 1; }
 
 DAILY_PLIST := $(HOME)/Library/LaunchAgents/com.jobsearch.daily.plist
 

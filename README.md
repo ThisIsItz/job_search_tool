@@ -167,7 +167,7 @@ a run makes a sound. If a step fails, you get a failure notice instead.
    `python -m app.notify_telegram --find-chat-id` and put the number in
    `.env` as `TELEGRAM_CHAT_ID`.
 3. `make install-daily` schedules it every day at 09:00 and 18:00 via launchd (logs in
-   `data/daily.log`); `make uninstall-daily` removes it. It only runs while
+   `data/logs/daily-<date>.log`, one per day, deleted after 14 days); `make uninstall-daily` removes it. It only runs while
    the Mac is on — if it's asleep at those times, it runs on wake.
 
 ## Makefile commands
