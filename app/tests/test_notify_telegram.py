@@ -24,10 +24,10 @@ def no_sleep():
 def test_format_job_escapes_html_and_shows_details():
     text = notify_telegram.format_job(JOB)
     assert text.splitlines() == [
-        "⭐ <b>Senior &lt;Frontend&gt; Engineer</b>",
+        "<b>Senior &lt;Frontend&gt; Engineer</b>",
         "🏢 Acme &amp; Co",
         "📍 Remote - Spain",  # work mode already in the location, not repeated
-        "🎯 Stack fit ●●●○ 3.5",
+        "🎯 ●●●○ 3.5",
         "💰 €60K–80K",
         "🧩 Staff plus · Frontend · via LinkedIn",
     ]
@@ -61,11 +61,11 @@ def test_stack_fit_bar_rounds_to_four_slots():
 
 def test_buttons_add_apply_only_for_a_distinct_direct_link():
     assert notify_telegram.build_buttons(JOB) == {
-        "inline_keyboard": [[{"text": "🔗 View job", "url": "https://example.com/jobs/1"}]]}
+        "inline_keyboard": [[{"text": "View job", "url": "https://example.com/jobs/1"}]]}
     with_direct = notify_telegram.build_buttons({**JOB, "apply_url": "https://acme.com/apply/1"})
-    assert [b["text"] for b in with_direct["inline_keyboard"][0]] == ["🔗 View job", "✅ Apply"]
+    assert [b["text"] for b in with_direct["inline_keyboard"][0]] == ["View job", "✅ Apply"]
     same_link = notify_telegram.build_buttons({**JOB, "apply_url": JOB["url"]})
-    assert [b["text"] for b in same_link["inline_keyboard"][0]] == ["🔗 View job"]
+    assert [b["text"] for b in same_link["inline_keyboard"][0]] == ["View job"]
 
 
 def _save_screened(conn, url: str, stack_fit: float = 3.0, passed: bool = True) -> None:

@@ -85,10 +85,10 @@ def format_job(job: dict) -> str:
     stack_fit = job.get("stack_fit")
     salary = format_salary(job)
     lines = [
-        f"⭐ <b>{html.escape(job['title'])}</b>",
+        f"<b>{html.escape(job['title'])}</b>",
         f"🏢 {html.escape(job['company'])}",
         f"📍 {html.escape(location)}" if location else None,
-        f"🎯 Stack fit {stack_fit_bar(stack_fit)} {stack_fit:.1f}" if stack_fit is not None else None,
+        f"🎯 {stack_fit_bar(stack_fit)} {stack_fit:.1f}" if stack_fit is not None else None,
         f"💰 {html.escape(salary)}" if salary else None,
         f"🧩 {html.escape(kind)}" if kind else None,
     ]
@@ -96,7 +96,7 @@ def format_job(job: dict) -> str:
 
 
 def build_buttons(job: dict) -> dict:
-    buttons = [{"text": "🔗 View job", "url": job["url"]}]
+    buttons = [{"text": "View job", "url": job["url"]}]
     if job.get("apply_url") and job["apply_url"] != job["url"]:
         buttons.append({"text": "✅ Apply", "url": job["apply_url"]})
     return {"inline_keyboard": [buttons]}
