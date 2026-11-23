@@ -69,7 +69,7 @@ const Toolbar = ({
       <span className="count-badge">{count} / {total}</span>
       <button className="btn secondary" onClick={onRefresh}>↻ Refresh</button>
       <button className="btn" onClick={onFetchNew} disabled={fetching}>
-        {fetching ? "Buscando… (1-2 min)" : "Buscar ofertas nuevas"}
+        {fetching ? "Buscando y filtrando… (unos minutos)" : "Buscar ofertas nuevas"}
       </button>
     </div>
   );

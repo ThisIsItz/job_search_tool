@@ -202,6 +202,57 @@ def screen_one(client, questions: dict, job: dict) -> dict:
     return answers
 
 
+def make_client():
+    try:
+        from google import genai
+    except ImportError as e:
+        raise RuntimeError("Missing dependency: pip install -U google-genai") from e
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY env var not set.")
+    return genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+
+
+def screen_queue(conn, client, questions: dict, queue: list[dict]) -> int:
+    """Screens and stores each job, committing per job so a crash mid-run
+    keeps what's done. A single job's API failure is logged and skipped
+    (it stays queued for the next run). Returns how many were rejected."""
+    rejected = 0
+    for i, job in enumerate(queue, 1):
+        try:
+            answers = screen_one(client, questions, job)
+        except Exception as e:
+            print(f"[WARN] {job['company']} — {job['title']}: AI filter failed — {e}", file=sys.stderr)
+            continue
+        reason = rejection_reason(answers)
+        dedup.save_ai_filter(conn, job["url"], reason, json.dumps(answers), MODEL)
+        conn.commit()
+        rejected += reason is not None
+        verdict = f"REJECT {reason}" if reason else "PASS"
+        print(f"[{i}/{len(queue)}] {verdict:50s} | {job['company']:20s} | {job['title']}")
+    return rejected
+
+
+def run(limit: int | None = None, rescreen: bool = False, dry_run: bool = False) -> None:
+    """Screens every queued job. Also called by app.main right after a fetch."""
+    questions = build_questions(load_stack(ai_evaluate.load_profile()))
+    with dedup.connect() as conn:
+        queue = dedup.get_ai_filter_queue(conn, include_screened=rescreen)
+        if limit:
+            queue = queue[:limit]
+
+        print(f"{len(queue)} candidate(s) queued for AI filtering.")
+        if not queue:
+            return
+        if dry_run:
+            for job in queue:
+                print(f"WOULD SCREEN | {job['company']:20s} | {job['title']}")
+            return
+
+        rejected = screen_queue(conn, make_client(), questions, queue)
+        print(f"\nRejected {rejected} of {len(queue)} screened job(s).")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Max number of jobs to screen this run")
@@ -209,45 +260,7 @@ if __name__ == "__main__":
     parser.add_argument("--rescreen", action="store_true",
                         help="Also re-screen jobs already screened, e.g. after changing the rules")
     args = parser.parse_args()
-
-    questions = build_questions(load_stack(ai_evaluate.load_profile()))
-
-    with dedup.connect() as conn:
-        queue = dedup.get_ai_filter_queue(conn, include_screened=args.rescreen)
-        if args.limit:
-            queue = queue[: args.limit]
-
-        print(f"{len(queue)} candidate(s) queued for AI filtering.")
-        if not queue:
-            sys.exit(0)
-
-        if args.dry_run:
-            for job in queue:
-                print(f"WOULD SCREEN | {job['company']:20s} | {job['title']}")
-            sys.exit(0)
-
-        try:
-            from google import genai
-        except ImportError:
-            sys.exit("Missing dependency: pip install -U google-genai")
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            sys.exit("GEMINI_API_KEY env var not set.")
-        client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-
-        rejected = 0
-        for i, job in enumerate(queue, 1):
-            try:
-                answers = screen_one(client, questions, job)
-            except Exception as e:
-                print(f"[WARN] {job['company']} — {job['title']}: AI filter failed — {e}", file=sys.stderr)
-                continue
-            reason = rejection_reason(answers)
-            dedup.save_ai_filter(conn, job["url"], reason, json.dumps(answers), MODEL)
-            conn.commit()  # per-job, so a crash mid-run keeps what's done
-            rejected += reason is not None
-            verdict = f"REJECT {reason}" if reason else "PASS"
-            print(f"[{i}/{len(queue)}] {verdict:50s} | {job['company']:20s} | {job['title']}")
-
-        print(f"\nRejected {rejected} of {len(queue)} screened job(s).")
+    try:
+        run(limit=args.limit, rescreen=args.rescreen, dry_run=args.dry_run)
+    except RuntimeError as e:
+        sys.exit(str(e))

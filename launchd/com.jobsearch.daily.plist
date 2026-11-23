@@ -11,13 +11,22 @@
     <string>-c</string>
     <string>cd "__REPO__" &amp;&amp; /usr/bin/make daily &gt;&gt; data/daily.log 2&gt;&amp;1</string>
   </array>
-  <!-- Every day at 09:00. If the Mac is asleep then, launchd runs it on wake. -->
+  <!-- Every day at 09:00 (US afternoon + early Europe postings) and 18:00
+       (European day + US morning). If the Mac is asleep then, launchd runs it on wake. -->
   <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>9</integer>
-    <key>Minute</key>
-    <integer>0</integer>
-  </dict>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>9</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
 </dict>
 </plist>

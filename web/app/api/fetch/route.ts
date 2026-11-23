@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-// Runs the free fetch+filter stage (python -m app.main — companies.yaml +
-// aggregators.yaml) and blocks until it finishes. No AI evaluation here,
-// so this never costs money. A full run takes 1-2 minutes, which is why
-// the client shows a loading state rather than treating this like a
-// normal fast API call.
+// Runs python -m app.main (fetch -> filter -> free Gemini AI filter) and
+// blocks until it finishes. No paid Claude evaluation here, so this never
+// costs money. It takes a few minutes (the AI filter reads every new job),
+// which is why the client shows a loading state rather than treating this
+// like a normal fast API call.
 const REPO_ROOT = path.join(process.cwd(), "..");
 const PYTHON = path.join(REPO_ROOT, ".venv", "bin", "python");
 

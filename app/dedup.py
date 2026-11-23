@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS job_details (
     source TEXT,
     salary_min REAL,
     salary_max REAL,
-    salary_currency TEXT
+    salary_currency TEXT,
+    apply_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ai_evaluations (
@@ -117,7 +118,8 @@ def _migrate(conn) -> None:
     columns added later need an explicit ALTER TABLE for a DB file that
     already exists (e.g. `source`, added 2026-08-12)."""
     existing = {row[1] for row in conn.execute("PRAGMA table_info(job_details)")}
-    new_columns = {"source": "TEXT", "salary_min": "REAL", "salary_max": "REAL", "salary_currency": "TEXT"}
+    new_columns = {"source": "TEXT", "salary_min": "REAL", "salary_max": "REAL", "salary_currency": "TEXT",
+                   "apply_url": "TEXT"}
     for column, column_type in new_columns.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE job_details ADD COLUMN {column} {column_type}")
@@ -172,8 +174,8 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO job_details "
         "(url, company, title, location, posted_at, description, passed_filters, source, "
-        "salary_min, salary_max, salary_currency) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "salary_min, salary_max, salary_currency, apply_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             job.get("url", ""),
             job.get("company", ""),
@@ -186,6 +188,7 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
             job.get("salary_min"),
             job.get("salary_max"),
             job.get("salary_currency"),
+            job.get("apply_url"),
         ),
     )
 
@@ -283,20 +286,30 @@ def get_ai_filter_queue(conn, include_screened: bool = False) -> list[dict]:
     return [dict(zip(keys, row)) for row in cur.fetchall()]
 
 
-def get_unnotified_matches(conn) -> list[dict]:
+def get_notification_queue(conn, max_pending_days: int) -> list[dict]:
     """Jobs that passed both filters.py and ai_filter.py and haven't been
-    sent by notify_telegram.py yet, best stack fit first."""
+    sent by notify_telegram.py yet, in send order: jobs found since the last
+    digest first, then older unsent ones, each group by best stack fit.
+    Unsent jobs fetched more than max_pending_days ago are left out (they
+    stay on the web board)."""
     cur = conn.execute(
-        "SELECT jd.url, jd.company, jd.title, jd.location, jd.source, "
+        "SELECT jd.url, jd.company, jd.title, jd.location, jd.source, jd.apply_url, "
         "       jd.salary_min, jd.salary_max, jd.salary_currency, "
-        "       json_extract(ap.answers, '$.stack_fit.score') AS stack_fit "
+        "       json_extract(af.answers, '$.stack_fit.score') AS stack_fit, "
+        "       json_extract(af.answers, '$.work_mode.choice'), "
+        "       json_extract(af.answers, '$.seniority.choice'), "
+        "       json_extract(af.answers, '$.role_type.choice'), "
+        "       jd.fetched_at > COALESCE((SELECT MAX(notified_at) FROM notified_jobs), '') AS is_new "
         "FROM job_details jd "
-        "JOIN ai_filter ap ON jd.url = ap.url "
+        "JOIN ai_filter af ON jd.url = af.url "
         "LEFT JOIN notified_jobs nj ON jd.url = nj.url "
-        "WHERE jd.passed_filters = 1 AND ap.passed = 1 AND nj.url IS NULL "
-        "ORDER BY stack_fit DESC"
+        "WHERE jd.passed_filters = 1 AND af.passed = 1 AND nj.url IS NULL "
+        "  AND jd.fetched_at >= datetime('now', ?) "
+        "ORDER BY is_new DESC, stack_fit DESC",
+        (f"-{max_pending_days} days",),
     )
-    keys = ["url", "company", "title", "location", "source", "salary_min", "salary_max", "salary_currency", "stack_fit"]
+    keys = ["url", "company", "title", "location", "source", "apply_url", "salary_min", "salary_max",
+            "salary_currency", "stack_fit", "work_mode", "seniority", "role_type", "is_new"]
     return [dict(zip(keys, row)) for row in cur.fetchall()]
 
 

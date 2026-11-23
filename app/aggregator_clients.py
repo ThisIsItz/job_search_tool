@@ -516,6 +516,7 @@ def fetch_jobspy(params: dict) -> list[dict]:
             "posted_at": date_posted.isoformat() if isinstance(date_posted, date) else None,
             "description": _jobspy_text(j.get("description")),
             "source": _jobspy_text(j.get("site")) or "jobspy",
+            "apply_url": _jobspy_text(j.get("job_url_direct")) or None,  # the employer's own apply page, when known
             **annual_salary(j.get("min_amount"), j.get("max_amount"), j.get("currency")),
         })
     return jobs

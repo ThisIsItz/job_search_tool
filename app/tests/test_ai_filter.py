@@ -4,7 +4,7 @@ exercised exactly as with a live response.
 Run with: python -m pytest app/tests/test_ai_filter.py
 """
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from google.genai._gaos.types.decisions.choiceanswer import ChoiceAnswer
@@ -161,3 +161,23 @@ def test_rejected_jobs_skip_claude_evaluation(tmp_path):
         assert len(dedup.get_ai_filter_queue(conn, include_screened=True)) == 3
         evaluation_queue = {j["url"] for j in dedup.get_unevaluated_candidates(conn)}
         assert evaluation_queue == {JOB["url"], unscreened_job["url"]}
+
+
+def test_screen_queue_stores_verdicts_and_keeps_failed_jobs_queued(tmp_path):
+    passing, failing = JOB, {**JOB, "url": "https://example.com/jobs/flaky"}
+    with dedup.connect(str(tmp_path / "test.sqlite3")) as conn:
+        for job in (passing, failing):
+            dedup.save_details(conn, job, passed_filters=True)
+
+        def fake_screen(client, questions, job):
+            if job["url"] == failing["url"]:
+                raise RuntimeError("503 from Gemini")
+            return _answers(work_mode=_choice("hybrid"))
+
+        with patch("app.ai_filter.screen_one", side_effect=fake_screen):
+            rejected = ai_filter.screen_queue(conn, None, {}, [passing, failing])
+
+        assert rejected == 1
+        stored = conn.execute("SELECT url, passed, rejection_reason FROM ai_filter").fetchall()
+        assert stored == [(passing["url"], 0, "not remote (hybrid)")]
+        assert [j["url"] for j in dedup.get_ai_filter_queue(conn)] == [failing["url"]]

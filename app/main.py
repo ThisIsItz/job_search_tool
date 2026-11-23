@@ -1,4 +1,4 @@
-"""MVP orchestrator: fetch -> filter -> dedup -> data/seen_jobs.sqlite3
+"""Orchestrator: fetch -> filter -> dedup -> data/seen_jobs.sqlite3 -> AI filter
 
 Pulls from two kinds of sources:
   - companies.yaml   — one ATS board per known company (precise, no noise)
@@ -6,26 +6,28 @@ Pulls from two kinds of sources:
                         once (broader reach, more noise — filters.py earns
                         its keep here)
 
-Deliberately stops BEFORE the AI evaluation step for this first pass, so
-you can eyeball the filtering quality on real data before spending any
-Claude Haiku calls. Wiring in the AI scoring step (ai_evaluate.py) is the
-next increment once this looks right.
+Runs the free AI filter (ai_filter.py) on the new jobs at the end, when
+GEMINI_API_KEY is set. The paid Claude evaluation (ai_evaluate.py) stays a
+separate, opt-in step.
 
 Usage (run from the repo root):
     python -m app.main                       # everything: companies + aggregators
     python -m app.main --company affirm      # just one company, for debugging
     python -m app.main --skip-aggregators    # companies.yaml only
     python -m app.main --skip-companies      # aggregators.yaml only
+    python -m app.main --skip-ai-filter      # don't run the AI filter afterwards
 
 Or `make run` for an interactive prompt instead of remembering flags.
 """
 import argparse
+import os
 import sys
 
 import yaml
 from dotenv import load_dotenv
 
 from app import aggregator_clients
+from app import ai_filter
 from app import ats_clients
 from app import dedup
 from app import discover_companies
@@ -94,6 +96,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-companies", action="store_true")
     parser.add_argument("--skip-discovery", action="store_true",
                          help="Don't auto-append newly-resolved Greenhouse/Lever companies to companies.yaml")
+    parser.add_argument("--skip-ai-filter", action="store_true", help="Don't run the AI filter after fetching")
     args = parser.parse_args()
 
     companies = [] if args.skip_companies else load_yaml_list("companies.yaml", "companies")
@@ -121,3 +124,14 @@ if __name__ == "__main__":
                   f"via Adzuna — appended to companies.yaml:")
             for c in added:
                 print(f"  + {c['name']} ({c['ats']}: {c['slug']})")
+
+    if args.skip_ai_filter:
+        sys.exit(0)
+    if not os.environ.get("GEMINI_API_KEY"):
+        print("\nAI filter skipped: GEMINI_API_KEY not set.")
+        sys.exit(0)
+    print()
+    try:
+        ai_filter.run()
+    except Exception as e:
+        sys.exit(f"AI filter failed (fetched jobs are saved; retry with `python -m app.ai_filter`): {e}")

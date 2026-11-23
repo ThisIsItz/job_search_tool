@@ -60,17 +60,16 @@ apply:
 	[[ "$$ans" =~ ^[Yy] ]] && api_flag="--api"; \
 	python -m app.generate_application --url "$$url" $$api_flag
 
-# Non-interactive fetch -> AI filter -> Telegram digest, for the daily
-# schedule. If any step fails, a failure notice goes to Telegram instead.
+# Non-interactive fetch -> filter -> AI filter -> Telegram digest, for the
+# daily schedule. If any step fails, a failure notice goes to Telegram instead.
 daily:
 	@date
-	@{ .venv/bin/python -m app.main && .venv/bin/python -m app.ai_filter && \
-	   .venv/bin/python -m app.notify_telegram; } || \
+	@{ .venv/bin/python -m app.main && .venv/bin/python -m app.notify_telegram; } || \
 	{ .venv/bin/python -m app.notify_telegram --failure "see data/daily.log"; exit 1; }
 
 DAILY_PLIST := $(HOME)/Library/LaunchAgents/com.jobsearch.daily.plist
 
-# Schedules `make daily` every day at 09:00 (edit launchd/com.jobsearch.daily.plist to change it).
+# Schedules `make daily` every day at 09:00 and 18:00 (edit launchd/com.jobsearch.daily.plist to change it).
 install-daily:
 	sed 's|__REPO__|$(CURDIR)|' launchd/com.jobsearch.daily.plist > "$(DAILY_PLIST)"
 	launchctl bootout gui/$$(id -u)/com.jobsearch.daily 2>/dev/null || true

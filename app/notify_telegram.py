@@ -1,8 +1,12 @@
-"""Sends new matching jobs to you on Telegram, one digest per run.
+"""Sends new matching jobs to you on Telegram: one message per job, with
+its details and buttons to open the posting (and the employer's apply page,
+when known).
 
-"Matching" = passed filters.py AND ai_filter.py. Each job is sent once
-(tracked in the notified_jobs table), best stack fit first. Meant to run
-after `app.main` and `app.ai_filter` — see `make daily`.
+"Matching" = passed filters.py AND ai_filter.py. Each run sends at most
+MAX_JOBS_PER_RUN: jobs found since the last run first, then older unsent
+ones to fill the remaining slots, each group best stack fit first. Unsent
+jobs expire after MAX_PENDING_DAYS (they stay on the web board). Only the
+first message of a run makes a sound. Runs at the end of `make daily`.
 
 Setup:
     1. In Telegram, talk to @BotFather, send /newbot, copy the token.
@@ -19,6 +23,7 @@ import argparse
 import html
 import os
 import sys
+import time
 
 import httpx
 from dotenv import load_dotenv
@@ -29,8 +34,10 @@ load_dotenv()
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 TIMEOUT = 20.0
-# Telegram rejects messages over 4096 characters; leave room for the header.
-MAX_MESSAGE_CHARS = 3800
+MAX_JOBS_PER_RUN = 10
+MAX_PENDING_DAYS = 7
+# Telegram asks bots to stay around one message per second per chat.
+SECONDS_BETWEEN_MESSAGES = 1.0
 SOURCE_LABEL = {"linkedin": "LinkedIn", "indeed": "Indeed", "remoteok": "RemoteOK", "weworkremotely": "WeWorkRemotely"}
 
 
@@ -43,35 +50,33 @@ def format_salary(job: dict) -> str | None:
     return f"{currency} {low:,.0f}–{high:,.0f}".strip()
 
 
+def _joined(parts: list[str | None]) -> str:
+    return html.escape(" · ".join(p for p in parts if p))
+
+
 def format_job(job: dict) -> str:
     source = job.get("source") or ""
-    details = [
+    fit_and_pay = [
         f"Stack fit {job['stack_fit']:.1f}/4" if job.get("stack_fit") is not None else None,
         format_salary(job),
-        SOURCE_LABEL.get(source, source.capitalize()) or None,
     ]
-    return (
-        f"<b>{html.escape(job['title'])}</b> — {html.escape(job['company'])}\n"
-        f"{html.escape(job['location'] or '')}\n"
-        f"{html.escape(' · '.join(d for d in details if d))}\n"
-        f"{html.escape(job['url'])}"
-    )
+    kind = [(job.get(key) or "").replace("_", " ").capitalize() or None
+            for key in ("work_mode", "seniority", "role_type")]
+    lines = [
+        f"<b>{html.escape(job['title'])}</b>",
+        _joined([job["company"], job.get("location")]),
+        _joined(fit_and_pay),
+        _joined(kind),
+        _joined([SOURCE_LABEL.get(source, source.capitalize()) or None]),
+    ]
+    return "\n".join(line for line in lines if line)
 
 
-def build_messages(jobs: list[dict]) -> list[str]:
-    """Splits the digest into as few messages as fit Telegram's size limit,
-    never cutting a job in half."""
-    header = f"🔎 {len(jobs)} new matching job{'s' if len(jobs) != 1 else ''}"
-    messages, current = [], header
-    for job in jobs:
-        block = "\n\n" + format_job(job)
-        if len(current) + len(block) > MAX_MESSAGE_CHARS:
-            messages.append(current)
-            current = block.lstrip()
-        else:
-            current += block
-    messages.append(current)
-    return messages
+def build_buttons(job: dict) -> dict:
+    buttons = [{"text": "View job", "url": job["url"]}]
+    if job.get("apply_url") and job["apply_url"] != job["url"]:
+        buttons.append({"text": "Apply", "url": job["apply_url"]})
+    return {"inline_keyboard": [buttons]}
 
 
 def call_telegram(token: str, method: str, **params) -> dict:
@@ -83,9 +88,12 @@ def call_telegram(token: str, method: str, **params) -> dict:
     return data
 
 
-def send_message(token: str, chat_id: str, text: str) -> None:
-    call_telegram(token, "sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
-                  disable_web_page_preview=True)
+def send_message(token: str, chat_id: str, text: str, buttons: dict | None = None, silent: bool = False) -> None:
+    params = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+              "disable_web_page_preview": True, "disable_notification": silent}
+    if buttons:
+        params["reply_markup"] = buttons
+    call_telegram(token, "sendMessage", **params)
 
 
 def find_chat_ids(token: str) -> set[int]:
@@ -94,14 +102,22 @@ def find_chat_ids(token: str) -> set[int]:
 
 
 def send_new_matches(conn, token: str, chat_id: str) -> int:
-    jobs = dedup.get_unnotified_matches(conn)
-    if not jobs:
-        return 0
-    for message in build_messages(jobs):
-        send_message(token, chat_id, message)
-    # Only after every message went through, so a failed send is retried next run.
-    dedup.mark_notified(conn, [job["url"] for job in jobs])
-    return len(jobs)
+    """Returns how many jobs were sent. Each job is marked sent right after
+    its own message goes through, so a failure mid-run doesn't resend the
+    ones already delivered."""
+    queue = dedup.get_notification_queue(conn, MAX_PENDING_DAYS)
+    to_send, waiting_count = queue[:MAX_JOBS_PER_RUN], len(queue) - MAX_JOBS_PER_RUN
+    for i, job in enumerate(to_send):
+        if i:
+            time.sleep(SECONDS_BETWEEN_MESSAGES)
+        send_message(token, chat_id, format_job(job), build_buttons(job), silent=i > 0)
+        dedup.mark_notified(conn, [job["url"]])
+        conn.commit()
+    if waiting_count > 0:
+        time.sleep(SECONDS_BETWEEN_MESSAGES)
+        send_message(token, chat_id, f"…and {waiting_count} more on the board. They'll come in the next "
+                     f"runs if there's room (for up to {MAX_PENDING_DAYS} days).", silent=True)
+    return len(to_send)
 
 
 if __name__ == "__main__":

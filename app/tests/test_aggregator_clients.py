@@ -156,7 +156,8 @@ def test_jobspy_maps_rows_and_marks_remote():
     df = _jobspy_frame([
         {"job_url": "https://www.linkedin.com/jobs/view/1", "title": "Frontend Engineer",
          "company": "Acme", "is_remote": True, "date_posted": date(2026, 11, 20),
-         "description": "React and TypeScript.", "site": "linkedin"},
+         "description": "React and TypeScript.", "site": "linkedin",
+         "job_url_direct": "https://boards.greenhouse.io/acme/jobs/1"},
         {"job_url": "https://www.linkedin.com/jobs/view/2", "title": "Full Stack Engineer",
          "is_remote": False},
     ])
@@ -168,6 +169,7 @@ def test_jobspy_maps_rows_and_marks_remote():
         "company": "Acme", "title": "Frontend Engineer", "location": "Remote",
         "url": "https://www.linkedin.com/jobs/view/1", "posted_at": "2026-11-20",
         "description": "React and TypeScript.", "source": "linkedin",
+        "apply_url": "https://boards.greenhouse.io/acme/jobs/1",
     }
     assert jobs[1]["source"] == "jobspy"
     assert jobs[1]["company"] == "Unknown"

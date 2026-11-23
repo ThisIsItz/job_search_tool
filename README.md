@@ -103,6 +103,8 @@ make run                              # same thing, interactive prompts instead 
 ```
 
 Results land in `data/seen_jobs.sqlite3`; browse them on the web board (step 4).
+When `GEMINI_API_KEY` is set, this also runs the AI filter (step 2) on the
+new jobs at the end — pass `--skip-ai-filter` to skip it.
 
 ### 2. AI filter (optional, free tier)
 
@@ -152,18 +154,21 @@ production build, etc).
 
 ### 5. Daily run with Telegram alerts (optional)
 
-`make daily` runs fetch -> AI filter -> sends you one Telegram digest of
-the new jobs that passed both (each job is sent once). If a step fails, you
-get a failure notice instead.
+`make daily` runs fetch -> filter -> AI filter -> sends you one Telegram
+message per job that passed, best stack fit first, with buttons to open the
+posting (and the employer's apply page, when known). At most
+`MAX_JOBS_PER_RUN` (10) per run: new jobs first, then older unsent ones fill
+any free slots, for up to `MAX_PENDING_DAYS` (7). Only the first message of
+a run makes a sound. If a step fails, you get a failure notice instead.
 
 1. In Telegram, message @BotFather, send `/newbot`, and put the token in
    `.env` as `TELEGRAM_BOT_TOKEN`.
 2. Send any message to your new bot, then run
    `python -m app.notify_telegram --find-chat-id` and put the number in
    `.env` as `TELEGRAM_CHAT_ID`.
-3. `make install-daily` schedules it every day at 09:00 via launchd (logs in
+3. `make install-daily` schedules it every day at 09:00 and 18:00 via launchd (logs in
    `data/daily.log`); `make uninstall-daily` removes it. It only runs while
-   the Mac is on — if it's asleep at 09:00, it runs on wake.
+   the Mac is on — if it's asleep at those times, it runs on wake.
 
 ## Makefile commands
 
