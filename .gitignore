@@ -12,3 +12,5 @@ data/test_*
 data/
 profile.yaml
 cv.txt
+companies.yaml
+aggregators.yaml

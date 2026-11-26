@@ -53,11 +53,13 @@ cp .env.example .env
 # fill in .env with the keys you need — see the comments in that file
 ```
 
-Create your experience profile from the template (this file is gitignored
-— it's never committed, since it holds your personal experience):
+Create your own config from the templates (these files are gitignored —
+they hold your personal experience and search preferences):
 
 ```bash
 cp profile.example.yaml profile.yaml
+cp companies.example.yaml companies.yaml
+cp aggregators.example.yaml aggregators.yaml
 # then edit profile.yaml with your own background
 ```
 
@@ -83,11 +85,11 @@ your first run, check these:**
 2. **`profile.yaml` → `ai_filter`** — where you can be hired, an optional
    relocation city, the languages you speak, and which role
    types/seniorities you accept (see `profile.example.yaml`).
-3. **`companies.yaml`** — the company registry. Ships with the original
-   author's real target list; add/remove companies to match who you're
-   actually applying to (see the file's header comment for the format).
-   `aggregators.yaml`'s search params are also location-specific —
-   update those to where you're looking.
+3. **`companies.yaml`** — the company registry: add/remove companies to
+   match who you're actually applying to (see the file's header comment for
+   the format).
+4. **`aggregators.yaml`** — the keyword/location searches: update them to
+   what and where you're looking.
 
 ## Usage
 
@@ -215,9 +217,9 @@ app/
   scripts/                 one-off diagnostic/maintenance scripts, not part of the pipeline
   tests/                   pytest + standalone sanity-check scripts
 web/                       Next.js review board (see web/README.md)
-companies.yaml             company -> ATS registry
-aggregators.yaml           aggregator search config
-filters.yaml               title/location/stack filter rules
+companies.example.yaml     template for companies.yaml (company -> ATS registry, gitignored)
+aggregators.example.yaml   template for aggregators.yaml (aggregator searches, gitignored)
+filters.yaml               title exclusions and posting age filter rules
 profile.example.yaml       blank template for profile.yaml (your real profile, gitignored)
 profile.sample.yaml        fully worked (fictional) example of a filled-in profile
 ```

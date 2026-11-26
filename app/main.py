@@ -36,8 +36,12 @@ load_dotenv()
 
 
 def load_yaml_list(path: str, key: str) -> list[dict]:
-    with open(path) as f:
-        return yaml.safe_load(f)[key]
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f)[key]
+    except FileNotFoundError:
+        example = path.replace(".yaml", ".example.yaml")
+        sys.exit(f"{path} not found — copy {example} to {path} and edit it (it's gitignored).")
 
 
 def process_jobs(jobs: list[dict], conn) -> list[dict]:

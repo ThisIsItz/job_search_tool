@@ -1,0 +1,25 @@
+# Company registry for the job discovery pipeline — example.
+# Copy to companies.yaml (gitignored) and edit it with your own targets:
+#   cp companies.example.yaml companies.yaml
+#
+# ats: one of "greenhouse" | "ashby" | "workable" | "lever" | "smartrecruiters"
+# slug: the identifier used in that ATS's public API URL
+#
+# A wrong slug just silently returns 0 jobs (logged as a warning, not an
+# error) — check `python -m app.main --company <slug>` before trusting a new
+# one. Companies discovered via Adzuna are appended to companies.yaml
+# automatically (see app/discover_companies.py).
+
+companies:
+  - name: GitLab
+    ats: greenhouse
+    slug: gitlab
+  - name: Webflow
+    ats: greenhouse
+    slug: webflow
+  - name: Linear
+    ats: ashby
+    slug: linear
+  - name: Supabase
+    ats: ashby
+    slug: supabase

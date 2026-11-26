@@ -1,0 +1,77 @@
+# Broad-coverage job aggregators — example.
+# Copy to aggregators.yaml (gitignored) and edit the searches to yours:
+#   cp aggregators.example.yaml aggregators.yaml
+#
+# Unlike companies.yaml (one board per company), these search across many
+# employers at once by keyword + location, so they catch companies you
+# haven't identified yet — at the cost of more noise, which the filters and
+# the AI filter are there for.
+#
+# type: one of "adzuna" | "remotive" | "remoteok" | "jobicy" | "weworkremotely" | "jobspy"
+# params: passed straight through to that aggregator's search API, EXCEPT
+#   max_pages (adzuna only), consumed by fetch_adzuna() itself.
+#
+# Adzuna's `where` param is a GEOGRAPHIC field — it doesn't recognize
+# "remote" as a place, so put "remote" in `what` instead.
+
+aggregators:
+  - name: Adzuna (UK, remote software engineer)
+    type: adzuna
+    params:
+      what: "software engineer remote"
+      country: "gb"
+      results_per_page: 50
+      max_pages: 5
+    notes: >
+      Needs ADZUNA_APP_ID / ADZUNA_APP_KEY in .env (free at
+      https://developer.adzuna.com).
+
+  - name: Remotive (software-dev category)
+    type: remotive
+    params:
+      category: "software-dev"
+    notes: >
+      No auth. Remotive asks for max 4 requests/day and 2/minute — keep this
+      to one call per run.
+
+  - name: RemoteOK (latest postings)
+    type: remoteok
+    params: {}
+
+  - name: Jobicy (dev tag, worldwide)
+    type: jobicy
+    params:
+      count: 50
+      tag: "dev"
+
+  - name: WeWorkRemotely (programming)
+    type: weworkremotely
+    params:
+      category: "remote-programming-jobs"
+
+  - name: Indeed via JobSpy (UK, remote software engineer)
+    type: jobspy
+    params:
+      site_name: ["indeed"]
+      search_term: "software engineer"
+      location: "United Kingdom"
+      country_indeed: "uk"
+      is_remote: true
+      results_wanted: 50
+    notes: >
+      Indeed only honours ONE of hours_old / (job_type + is_remote) /
+      easy_apply per search, so hours_old is left out here.
+
+  - name: LinkedIn via JobSpy (UK, remote software engineer)
+    type: jobspy
+    params:
+      site_name: ["linkedin"]
+      search_term: "software engineer"
+      location: "United Kingdom"
+      is_remote: true
+      hours_old: 72
+      results_wanted: 25
+    notes: >
+      Scrapes LinkedIn's public, logged-out job search (no account). LinkedIn
+      rate-limits by IP after roughly 10 pages per run in total, so keep
+      results_wanted modest across all LinkedIn entries.

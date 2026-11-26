@@ -1,5 +1,6 @@
 """Sanity test for discover_companies.py — runs against a throwaway COPY of
-companies.yaml, never the real file. Verifies: known companies are never
+companies.example.yaml (committed, so the test doesn't depend on your own
+gitignored companies.yaml), never the real file. Verifies: known companies are never
 re-suggested, duplicates within one run are collapsed, appending preserves
 the existing file's comments/formatting, and the appended block is valid
 YAML that round-trips correctly. Run with: python -m app.tests.test_discover_companies
@@ -16,21 +17,21 @@ TEST_YAML = "data/test_companies.yaml"
 
 def main():
     os.makedirs("data", exist_ok=True)
-    shutil.copy("companies.yaml", TEST_YAML)
+    shutil.copy("companies.example.yaml", TEST_YAML)
 
     with open(TEST_YAML) as f:
         original_text = f.read()
     original_companies = yaml.safe_load(original_text)["companies"]
 
-    # --- already-tracked companies (Affirm/greenhouse) should never be
+    # --- already-tracked companies (GitLab/greenhouse) should never be
     # re-suggested, even with a different display-name casing from Adzuna ---
     known = discover_companies.load_known_keys(TEST_YAML)
-    assert ("greenhouse", "affirm") in known
-    assert ("workable", "treewalk") in known
+    assert ("greenhouse", "gitlab") in known
+    assert ("ashby", "linear") in known
     print(f"load_known_keys OK: {len(known)} pairs loaded")
 
     discovered = [
-        {"name": "Affirm Inc.", "ats": "greenhouse", "slug": "affirm"},  # already known -> skip
+        {"name": "GitLab Inc.", "ats": "greenhouse", "slug": "gitlab"},  # already known -> skip
         {"name": "Warner Music Group", "ats": "greenhouse", "slug": "warnermusicgroup"},  # new
         {"name": "Warner Music Group", "ats": "greenhouse", "slug": "warnermusicgroup"},  # dup within this run -> collapse
         {"name": "Some New Co", "ats": "lever", "slug": "somenewco"},  # new, different ATS
@@ -47,8 +48,8 @@ def main():
     with open(TEST_YAML) as f:
         new_text = f.read()
     assert new_text.startswith(original_text), "existing file content was modified, not just appended to"
-    assert "# Company registry for the job discovery pipeline." in new_text  # header comment survived
-    assert "coveodeven" in new_text or "corrected 2026-08-10" in new_text  # provenance comment survived
+    assert "# Company registry for the job discovery pipeline" in new_text  # header comment survived
+    assert "# A wrong slug just silently returns 0 jobs" in new_text  # inner comment survived
     print("File comments/formatting preserved OK")
 
     # --- the whole file (original + appended block) must still be valid,
