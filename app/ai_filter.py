@@ -7,8 +7,13 @@ languages) and gets back calibrated probabilities instead of text. Jobs that
 clearly fail are recorded as rejected in the ai_filter table, so
 ai_evaluate.py never pays to score them and the web board hides them.
 
-Privacy: only the job posting and the technology list from profile.yaml's
-core_stack are sent to Google — never the rest of your profile.
+What counts as a fit comes from profile.yaml's `ai_filter` section (where
+you can be hired, an optional relocation city, languages, accepted role
+types/seniorities) — see profile.example.yaml.
+
+Privacy: only the job posting, profile.yaml's core_stack technologies and
+those `ai_filter` preferences are sent to Google — never the rest of your
+profile.
 
 Setup:
     pip install -U google-genai
@@ -24,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -35,16 +41,24 @@ load_dotenv()
 
 MODEL = "gemini-decision-1"
 
-WORK_REGIONS = ["Spain", "the United Kingdom", "any other EU country"]
-# The only place where relocating, visa sponsorship, or hybrid/on-site work is acceptable.
-RELOCATION_CITY = "Bangkok, Thailand"
-# A posting that names only this country (no city) might be in RELOCATION_CITY, so it's kept too.
-RELOCATION_COUNTRY = "Thailand"
-SPOKEN_LANGUAGES = ["English", "Spanish"]
-
-ROLE_TYPES_ANY_SENIORITY = {"frontend", "fullstack"}
-ROLE_TYPES_JUNIOR_ONLY = {"mobile", "design"}
-REJECTED_SENIORITIES = {"manager"}
+ROLE_TYPE_CRITERIA = {
+    "frontend": "Web frontend engineering.",
+    "fullstack": "Full-stack engineering with real frontend work.",
+    "backend": "Backend, platform or API engineering with little or no frontend.",
+    "mobile": "Native or cross-platform mobile app engineering.",
+    "design": "Product, UX or UI design.",
+    "qa": "QA, testing or test automation.",
+    "data": "Data engineering, data science, analytics or ML.",
+    "devops": "DevOps, SRE, infrastructure or security.",
+    "other": "Anything else.",
+}
+SENIORITY_CRITERIA = {
+    "junior": "Junior, entry-level, graduate or intern.",
+    "mid": "Mid-level.",
+    "senior": "Senior individual contributor.",
+    "staff_plus": "Staff, principal or tech-lead individual contributor.",
+    "manager": "People manager: engineering manager, head of, director.",
+}
 
 # Only act on a choice answer the model is reasonably sure about; an unsure
 # answer (e.g. a thin JD that never mentions work mode) keeps the job.
@@ -64,8 +78,63 @@ STACK_FIT_LEVELS = [
 ]
 
 
-def build_questions(stack: list[str]) -> dict:
-    return {
+@dataclass(frozen=True)
+class Preferences:
+    work_regions: list[str]
+    spoken_languages: list[str]
+    role_types_any_seniority: frozenset[str]
+    role_types_junior_only: frozenset[str]
+    rejected_seniorities: frozenset[str]
+    # The only place where relocating, visa sponsorship, or hybrid/on-site work is acceptable.
+    relocation_city: str | None = None
+    # A posting naming only this country (no city) might be in relocation_city, so it's kept too.
+    relocation_country: str | None = None
+
+
+def _string_list(section: dict, key: str) -> list[str]:
+    value = section.get(key)
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ValueError(f"profile.yaml ai_filter.{key} must be a list of strings (see profile.example.yaml)")
+    return value
+
+
+def _choice_set(section: dict, key: str, allowed: dict) -> frozenset[str]:
+    values = frozenset(_string_list(section, key))
+    unknown = values - set(allowed)
+    if unknown:
+        raise ValueError(f"profile.yaml ai_filter.{key} has unknown values {sorted(unknown)}; "
+                         f"allowed: {sorted(allowed)}")
+    return values
+
+
+def load_preferences(profile: dict) -> Preferences:
+    section = profile.get("ai_filter")
+    if not isinstance(section, dict):
+        raise ValueError("profile.yaml has no ai_filter section — copy it from profile.example.yaml")
+    return Preferences(
+        work_regions=_string_list(section, "work_regions"),
+        spoken_languages=_string_list(section, "spoken_languages"),
+        role_types_any_seniority=_choice_set(section, "role_types_any_seniority", ROLE_TYPE_CRITERIA),
+        role_types_junior_only=_choice_set(section, "role_types_junior_only", ROLE_TYPE_CRITERIA),
+        rejected_seniorities=_choice_set(section, "rejected_seniorities", SENIORITY_CRITERIA),
+        relocation_city=section.get("relocation_city") or None,
+        relocation_country=section.get("relocation_country") or None,
+    )
+
+
+def _relocation_place(prefs: Preferences) -> str:
+    if prefs.relocation_country:
+        return f"{prefs.relocation_city}, or in {prefs.relocation_country} with no specific city named"
+    return prefs.relocation_city or ""
+
+
+def build_questions(stack: list[str], prefs: Preferences) -> dict:
+    relocation_clause = (
+        f"Also yes if the role is located in {_relocation_place(prefs)}, even if it requires "
+        "relocating there or visa sponsorship. "
+        if prefs.relocation_city else ""
+    )
+    questions = {
         "work_mode": {
             "type": "choice",
             "instructions": "How is this role worked day to day?",
@@ -75,23 +144,14 @@ def build_questions(stack: list[str]) -> dict:
                 "onsite": "Primarily or fully in an office.",
             },
         },
-        "in_relocation_city": {
-            "type": "noul",
-            "instructions": (
-                f"Is this role's office or required work location in {RELOCATION_CITY}, or in "
-                f"{RELOCATION_COUNTRY} with no specific city named?"
-            ),
-        },
         "hireable": {
             "type": "noul",
             "instructions": (
-                f"Can someone living in {', '.join(WORK_REGIONS)} be hired for this role, without "
+                f"Can someone living in {', '.join(prefs.work_regions)} be hired for this role, without "
                 "relocating or needing visa sponsorship? Being hired as an independent contractor "
                 "(e.g. through Deel or a contractor agreement) counts as yes, even if the company "
                 "is in another country. Yes if it is open worldwide or to a region "
-                "that includes one of those places. Also yes if the role is located in "
-                f"{RELOCATION_CITY}, or in {RELOCATION_COUNTRY} with no specific city named, even "
-                "if it requires relocating there or visa sponsorship. "
+                f"that includes one of those places. {relocation_clause}"
                 "No if it is restricted to other countries only (e.g. US-only, Canada-only, "
                 "LATAM-only) or requires relocating anywhere else, including other cities in "
                 "the same country."
@@ -100,28 +160,12 @@ def build_questions(stack: list[str]) -> dict:
         "role_type": {
             "type": "choice",
             "instructions": "What is the main discipline of this role?",
-            "criteria": {
-                "frontend": "Web frontend engineering.",
-                "fullstack": "Full-stack engineering with real frontend work.",
-                "backend": "Backend, platform or API engineering with little or no frontend.",
-                "mobile": "Native or cross-platform mobile app engineering.",
-                "design": "Product, UX or UI design.",
-                "qa": "QA, testing or test automation.",
-                "data": "Data engineering, data science, analytics or ML.",
-                "devops": "DevOps, SRE, infrastructure or security.",
-                "other": "Anything else.",
-            },
+            "criteria": ROLE_TYPE_CRITERIA,
         },
         "seniority": {
             "type": "choice",
             "instructions": "What seniority level is this role?",
-            "criteria": {
-                "junior": "Junior, entry-level, graduate or intern.",
-                "mid": "Mid-level.",
-                "senior": "Senior individual contributor.",
-                "staff_plus": "Staff, principal or tech-lead individual contributor.",
-                "manager": "People manager: engineering manager, head of, director.",
-            },
+            "criteria": SENIORITY_CRITERIA,
         },
         "stack_fit": {
             "type": "score",
@@ -135,10 +179,16 @@ def build_questions(stack: list[str]) -> dict:
             "type": "noul",
             "instructions": (
                 "Does this role require professional fluency in a language other than "
-                f"{' or '.join(SPOKEN_LANGUAGES)}?"
+                f"{' or '.join(prefs.spoken_languages)}?"
             ),
         },
     }
+    if prefs.relocation_city:
+        questions["in_relocation_city"] = {
+            "type": "noul",
+            "instructions": f"Is this role's office or required work location in {_relocation_place(prefs)}?",
+        }
+    return questions
 
 
 def load_stack(profile: dict) -> list[str]:
@@ -161,26 +211,29 @@ def _is_confident(answer: dict) -> bool:
     return answer["confidence"] >= MIN_CONFIDENCE_TO_REJECT
 
 
-def rejection_reason(answers: dict) -> str | None:
+def rejection_reason(answers: dict, prefs: Preferences) -> str | None:
     """None means the job passes. Answers are plain dicts, as returned by
     the API (choice/probabilities/score/noul/confidence)."""
     work_mode = answers["work_mode"]
-    is_in_relocation_city = answers["in_relocation_city"]["noul"] >= MIN_RELOCATION_CITY_PROBABILITY_TO_KEEP
+    relocation_answer = answers.get("in_relocation_city")
+    is_in_relocation_city = (relocation_answer is not None
+                             and relocation_answer["noul"] >= MIN_RELOCATION_CITY_PROBABILITY_TO_KEEP)
     if work_mode["choice"] != "remote" and _is_confident(work_mode) and not is_in_relocation_city:
         return f"not remote ({work_mode['choice']})"
 
     if answers["hireable"]["noul"] <= MAX_HIREABLE_PROBABILITY_TO_REJECT:
-        return f"not hireable from Spain/UK/EU, nor in {RELOCATION_CITY}"
+        relocation = f", nor in {prefs.relocation_city}" if prefs.relocation_city else ""
+        return f"not hireable from {', '.join(prefs.work_regions)}{relocation}"
 
     role_type = answers["role_type"]
     seniority = answers["seniority"]
-    is_role_rejected = role_type["choice"] not in ROLE_TYPES_ANY_SENIORITY and not (
-        role_type["choice"] in ROLE_TYPES_JUNIOR_ONLY and seniority["choice"] == "junior"
+    is_role_rejected = role_type["choice"] not in prefs.role_types_any_seniority and not (
+        role_type["choice"] in prefs.role_types_junior_only and seniority["choice"] == "junior"
     )
     if is_role_rejected and _is_confident(role_type):
         return f"role type ({role_type['choice']}, {seniority['choice']})"
 
-    if seniority["choice"] in REJECTED_SENIORITIES and _is_confident(seniority):
+    if seniority["choice"] in prefs.rejected_seniorities and _is_confident(seniority):
         return f"seniority ({seniority['choice']})"
 
     # Stack fit means little for a design role, which is only kept when junior anyway.
@@ -188,7 +241,7 @@ def rejection_reason(answers: dict) -> str | None:
         return f"stack fit ({answers['stack_fit']['score']:.1f}/4)"
 
     if answers["other_language_required"]["noul"] >= MIN_LANGUAGE_PROBABILITY_TO_REJECT:
-        return "requires a language other than English/Spanish"
+        return f"requires a language other than {'/'.join(prefs.spoken_languages)}"
 
     return None
 
@@ -213,7 +266,7 @@ def make_client():
     return genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 
 
-def screen_queue(conn, client, questions: dict, queue: list[dict]) -> int:
+def screen_queue(conn, client, questions: dict, prefs: Preferences, queue: list[dict]) -> int:
     """Screens and stores each job, committing per job so a crash mid-run
     keeps what's done. A single job's API failure is logged and skipped
     (it stays queued for the next run). Returns how many were rejected."""
@@ -224,7 +277,7 @@ def screen_queue(conn, client, questions: dict, queue: list[dict]) -> int:
         except Exception as e:
             print(f"[WARN] {job['company']} — {job['title']}: AI filter failed — {e}", file=sys.stderr)
             continue
-        reason = rejection_reason(answers)
+        reason = rejection_reason(answers, prefs)
         dedup.save_ai_filter(conn, job["url"], reason, json.dumps(answers), MODEL)
         conn.commit()
         rejected += reason is not None
@@ -235,7 +288,9 @@ def screen_queue(conn, client, questions: dict, queue: list[dict]) -> int:
 
 def run(limit: int | None = None, rescreen: bool = False, dry_run: bool = False) -> None:
     """Screens every queued job. Also called by app.main right after a fetch."""
-    questions = build_questions(load_stack(ai_evaluate.load_profile()))
+    profile = ai_evaluate.load_profile()
+    prefs = load_preferences(profile)
+    questions = build_questions(load_stack(profile), prefs)
     with dedup.connect() as conn:
         queue = dedup.get_ai_filter_queue(conn, include_screened=rescreen)
         if limit:
@@ -249,7 +304,7 @@ def run(limit: int | None = None, rescreen: bool = False, dry_run: bool = False)
                 print(f"WOULD SCREEN | {job['company']:20s} | {job['title']}")
             return
 
-        rejected = screen_queue(conn, make_client(), questions, queue)
+        rejected = screen_queue(conn, make_client(), questions, prefs, queue)
         print(f"\nRejected {rejected} of {len(queue)} screened job(s).")
 
 
@@ -262,5 +317,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         run(limit=args.limit, rescreen=args.rescreen, dry_run=args.dry_run)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         sys.exit(str(e))

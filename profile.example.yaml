@@ -76,3 +76,20 @@ constraints:
   - "Any hard constraints on employer type, stage, or stability you want the model to weigh."
   - "Role-level preference (IC vs. management track, senior vs. staff, etc.)."
   - "Any location/relocation constraints."
+
+# Read by app/ai_filter.py to decide which jobs to keep.
+ai_filter:
+  # Where you can already work without a visa or relocating.
+  work_regions: ["the United Kingdom"]
+  # Optional: the one place where relocating, visa sponsorship or
+  # hybrid/on-site work is fine. Leave empty if there's none.
+  relocation_city: ""
+  # Optional: a posting naming only this country (no city) is treated as relocation_city.
+  relocation_country: ""
+  spoken_languages: ["English"]
+  # Role types: frontend, fullstack, backend, mobile, design, qa, data, devops, other.
+  role_types_any_seniority: ["backend", "fullstack"]
+  # Kept only when the role is junior.
+  role_types_junior_only: []
+  # Seniorities: junior, mid, senior, staff_plus, manager.
+  rejected_seniorities: ["manager"]

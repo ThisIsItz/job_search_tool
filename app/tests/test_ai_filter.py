@@ -12,6 +12,16 @@ from google.genai._gaos.types.decisions.noulanswer import NoulAnswer
 from google.genai._gaos.types.decisions.scoreanswer import ScoreAnswer
 
 from app import ai_filter
+
+PREFS = ai_filter.Preferences(
+    work_regions=["Spain", "the United Kingdom", "any other EU country"],
+    spoken_languages=["English", "Spanish"],
+    role_types_any_seniority=frozenset({"frontend", "fullstack"}),
+    role_types_junior_only=frozenset({"mobile", "design"}),
+    rejected_seniorities=frozenset({"manager"}),
+    relocation_city="Bangkok, Thailand",
+    relocation_country="Thailand",
+)
 from app import dedup
 
 JOB = {
@@ -46,13 +56,13 @@ def _answers(**overrides) -> dict:
 
 
 def test_good_remote_frontend_job_passes():
-    assert ai_filter.rejection_reason(_answers()) is None
+    assert ai_filter.rejection_reason(_answers(), PREFS) is None
 
 
 @pytest.mark.parametrize("overrides, expected", [
     ({"work_mode": _choice("hybrid")}, "not remote (hybrid)"),
     ({"work_mode": _choice("onsite")}, "not remote (onsite)"),
-    ({"hireable": _noul(0.1)}, "not hireable from Spain/UK/EU, nor in Bangkok, Thailand"),
+    ({"hireable": _noul(0.1)}, "not hireable from Spain, the United Kingdom, any other EU country, nor in Bangkok, Thailand"),
     ({"work_mode": _choice("onsite"), "in_relocation_city": _noul(0.4)}, "not remote (onsite)"),
     ({"role_type": _choice("backend")}, "role type (backend, senior)"),
     ({"role_type": _choice("mobile")}, "role type (mobile, senior)"),
@@ -62,35 +72,35 @@ def test_good_remote_frontend_job_passes():
     ({"other_language_required": _noul(0.9)}, "requires a language other than English/Spanish"),
 ])
 def test_rejections(overrides, expected):
-    assert ai_filter.rejection_reason(_answers(**overrides)) == expected
+    assert ai_filter.rejection_reason(_answers(**overrides), PREFS) == expected
 
 
 @pytest.mark.parametrize("role_type", ["mobile", "design"])
 def test_junior_mobile_and_design_pass(role_type):
     answers = _answers(role_type=_choice(role_type), seniority=_choice("junior"))
-    assert ai_filter.rejection_reason(answers) is None
+    assert ai_filter.rejection_reason(answers, PREFS) is None
 
 
 def test_design_role_skips_stack_fit():
     answers = _answers(role_type=_choice("design"), seniority=_choice("junior"),
                        stack_fit={"score": 0.0, "confidence": 0.9})
-    assert ai_filter.rejection_reason(answers) is None
+    assert ai_filter.rejection_reason(answers, PREFS) is None
 
 
 @pytest.mark.parametrize("work_mode", ["hybrid", "onsite"])
 def test_non_remote_in_bangkok_passes(work_mode):
     answers = _answers(work_mode=_choice(work_mode), in_relocation_city=_noul(0.95))
-    assert ai_filter.rejection_reason(answers) is None
+    assert ai_filter.rejection_reason(answers, PREFS) is None
 
 
 def test_bangkok_role_still_needs_the_right_role_type():
     answers = _answers(work_mode=_choice("onsite"), in_relocation_city=_noul(0.95),
                        role_type=_choice("backend"))
-    assert ai_filter.rejection_reason(answers) == "role type (backend, senior)"
+    assert ai_filter.rejection_reason(answers, PREFS) == "role type (backend, senior)"
 
 
 def test_questions_only_allow_relocating_to_bangkok():
-    questions = ai_filter.build_questions(["React"])
+    questions = ai_filter.build_questions(["React"], PREFS)
     assert "Bangkok, Thailand" in questions["hireable"]["instructions"]
     assert "other cities in the same country" in questions["hireable"]["instructions"]
     assert "independent contractor" in questions["hireable"]["instructions"]
@@ -100,7 +110,7 @@ def test_questions_only_allow_relocating_to_bangkok():
 
 
 def test_unsure_work_mode_keeps_the_job():
-    assert ai_filter.rejection_reason(_answers(work_mode=_choice("hybrid", confidence=0.4))) is None
+    assert ai_filter.rejection_reason(_answers(work_mode=_choice("hybrid", confidence=0.4)), PREFS) is None
 
 
 def test_stack_comes_only_from_core_stack():
@@ -142,7 +152,7 @@ def test_screen_one_raises_on_missing_answer():
 def test_questions_are_valid_for_the_sdk():
     from google.genai._gaos.types.decisions.createdecisionrequest import CreateDecisionRequest
 
-    questions = ai_filter.build_questions(["React", "TypeScript"])
+    questions = ai_filter.build_questions(["React", "TypeScript"], PREFS)
     CreateDecisionRequest(model=ai_filter.MODEL, input="x", questions=questions)
 
 
@@ -175,7 +185,7 @@ def test_screen_queue_stores_verdicts_and_keeps_failed_jobs_queued(tmp_path):
             return _answers(work_mode=_choice("hybrid"))
 
         with patch("app.ai_filter.screen_one", side_effect=fake_screen):
-            rejected = ai_filter.screen_queue(conn, None, {}, [passing, failing])
+            rejected = ai_filter.screen_queue(conn, None, {}, PREFS, [passing, failing])
 
         assert rejected == 1
         stored = conn.execute("SELECT url, passed, rejection_reason FROM ai_filter").fetchall()

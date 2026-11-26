@@ -117,3 +117,12 @@ constraints:
      18-month pre-PMF stint that pivoted twice and then ran out of runway."
   - "Wants a senior IC or tech-lead-track role, not people management."
   - "Open to relocation within the Pacific Northwest only."
+
+ai_filter:
+  work_regions: ["the United States"]
+  relocation_city: "Seattle, WA"
+  relocation_country: ""
+  spoken_languages: ["English"]
+  role_types_any_seniority: ["backend", "fullstack"]
+  role_types_junior_only: []
+  rejected_seniorities: ["manager"]

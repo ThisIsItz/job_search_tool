@@ -80,9 +80,9 @@ your first run, check these:**
 
 1. **`profile.yaml` → `core_stack`** — the technologies the AI filter
    scores stack fit against.
-2. **`app/ai_filter.py`'s constants** — where you can be hired
-   (`WORK_REGIONS`, `RELOCATION_CITY`), the languages you speak, and which
-   role types/seniorities you accept.
+2. **`profile.yaml` → `ai_filter`** — where you can be hired, an optional
+   relocation city, the languages you speak, and which role
+   types/seniorities you accept (see `profile.example.yaml`).
 3. **`companies.yaml`** — the company registry. Ships with the original
    author's real target list; add/remove companies to match who you're
    actually applying to (see the file's header comment for the format).
