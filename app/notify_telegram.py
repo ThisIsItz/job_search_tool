@@ -38,6 +38,8 @@ MAX_JOBS_PER_RUN = 10
 MAX_PENDING_DAYS = 7
 # Telegram asks bots to stay around one message per second per chat.
 SECONDS_BETWEEN_MESSAGES = 1.0
+# A job posted in many countries lists only this many of the others, then "+N more".
+MAX_OTHER_LOCATIONS_SHOWN = 5
 MAX_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 3.0
 SOURCE_LABEL = {"linkedin": "LinkedIn", "indeed": "Indeed", "remoteok": "RemoteOK", "weworkremotely": "WeWorkRemotely"}
@@ -88,11 +90,29 @@ def format_job(job: dict) -> str:
         f"<b>{html.escape(job['title'])}</b>",
         f"🏢 {html.escape(job['company'])}",
         f"📍 {html.escape(location)}" if location else None,
+        f"🌍 Also in: {html.escape(format_other_locations(job.get('other_locations') or []))}"
+        if job.get("other_locations") else None,
         f"🎯 {stack_fit_bar(stack_fit)} {stack_fit:.1f}" if stack_fit is not None else None,
         f"💰 {html.escape(salary)}" if salary else None,
         f"🧩 {html.escape(kind)}" if kind else None,
     ]
     return "\n".join(line for line in lines if line)
+
+
+def format_other_locations(locations: list[str]) -> str:
+    unique = list(dict.fromkeys(locations))
+    shown, hidden_count = unique[:MAX_OTHER_LOCATIONS_SHOWN], len(unique) - MAX_OTHER_LOCATIONS_SHOWN
+    return ", ".join(shown) + (f" +{hidden_count} more" if hidden_count > 0 else "")
+
+
+def group_queue(queue: list[dict]) -> list[list[dict]]:
+    """Groups the same job posted in several countries (see app/duplicates.py),
+    keeping queue order: each group sits where its best member was, and that
+    member comes first."""
+    groups: dict[str, list[dict]] = {}
+    for job in queue:
+        groups.setdefault(job["group_id"], []).append(job)
+    return list(groups.values())
 
 
 def build_buttons(job: dict) -> dict:
@@ -140,18 +160,29 @@ def find_chat_ids(token: str) -> set[int]:
     return {u["message"]["chat"]["id"] for u in updates if "message" in u}
 
 
+def _mark_group_sent(conn, group: list[dict]) -> None:
+    dedup.mark_notified(conn, [job["url"] for job in group])
+    conn.commit()
+
+
 def send_new_matches(conn, token: str, chat_id: str) -> int:
-    """Returns how many jobs were sent. Each job is marked sent right after
-    its own message goes through, so a failure mid-run doesn't resend the
-    ones already delivered."""
-    queue = dedup.get_notification_queue(conn, MAX_PENDING_DAYS)
-    to_send, waiting_count = queue[:MAX_JOBS_PER_RUN], len(queue) - MAX_JOBS_PER_RUN
-    for i, job in enumerate(to_send):
+    """One message per job (a job posted in several countries is one job).
+    Returns how many were sent. Each is marked sent right after its own
+    message goes through, so a failure mid-run doesn't resend the ones
+    already delivered. A new country version of a job you already got is
+    marked sent without a message."""
+    groups = group_queue(dedup.get_notification_queue(conn, MAX_PENDING_DAYS))
+    for group in groups:
+        if group[0]["group_already_sent"]:
+            _mark_group_sent(conn, group)
+    new_groups = [group for group in groups if not group[0]["group_already_sent"]]
+    to_send, waiting_count = new_groups[:MAX_JOBS_PER_RUN], len(new_groups) - MAX_JOBS_PER_RUN
+    for i, group in enumerate(to_send):
         if i:
             time.sleep(SECONDS_BETWEEN_MESSAGES)
+        job = {**group[0], "other_locations": [other["location"] for other in group[1:] if other["location"]]}
         send_message(token, chat_id, format_job(job), build_buttons(job), silent=i > 0)
-        dedup.mark_notified(conn, [job["url"]])
-        conn.commit()
+        _mark_group_sent(conn, group)
     if waiting_count > 0:
         time.sleep(SECONDS_BETWEEN_MESSAGES)
         send_message(token, chat_id, f"…and {waiting_count} more on the board. They'll come in the next "

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import path from "node:path";
+import {collapseDuplicateGroups, OtherLocation} from "@/lib/duplicates";
 
 // Points at the SAME sqlite file the Python pipeline (dedup.py) writes to
 // — this app is a read/write viewer on top of it, not a separate data
@@ -30,8 +31,10 @@ export type JobRow = {
   risk_factors: string | null;
   my_status: MyStatus | null;
   notes: string | null;
+  group_id: string | null;
   // computed
   status: string;
+  other_locations: OtherLocation[];
 };
 
 let db: Database.Database | null = null;
@@ -73,7 +76,8 @@ function getDb(): Database.Database {
       rejection_reason TEXT,
       answers TEXT,
       model TEXT,
-      evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      group_id TEXT
     );
     CREATE TABLE IF NOT EXISTS user_status (
       url TEXT PRIMARY KEY,
@@ -95,7 +99,7 @@ export function getJobs(): JobRow[] {
              ae.match_score, json_extract(ap.answers, '$.stack_fit.score') AS stack_fit,
              ae.recommendation, ae.genuine_gaps,
              ae.transferable_strengths, ae.risk_factors,
-             us.my_status, us.notes
+             us.my_status, us.notes, ap.group_id
       FROM job_details jd
       LEFT JOIN ai_evaluations ae ON jd.url = ae.url
       LEFT JOIN user_status us ON jd.url = us.url
@@ -104,9 +108,9 @@ export function getJobs(): JobRow[] {
       ORDER BY ae.match_score DESC
       `
     )
-    .all() as Omit<JobRow, "status">[];
+    .all() as Omit<JobRow, "status" | "other_locations">[];
 
-  return rows.map((r) => ({
+  return collapseDuplicateGroups(rows).map((r) => ({
     ...r,
     status: r.recommendation ?? "not_evaluated", // apply | consider | skip | not_evaluated
   }));

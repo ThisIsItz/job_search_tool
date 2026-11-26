@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS ai_filter (
     answers TEXT,
     model TEXT,
     evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    group_id TEXT,  -- same job posted in several countries share one (see app/duplicates.py)
     FOREIGN KEY (url) REFERENCES job_details(url)
 );
 
@@ -117,12 +118,16 @@ def _migrate(conn) -> None:
     """SCHEMA's CREATE TABLE IF NOT EXISTS only handles brand-new DBs —
     columns added later need an explicit ALTER TABLE for a DB file that
     already exists (e.g. `source`, added 2026-08-12)."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(job_details)")}
-    new_columns = {"source": "TEXT", "salary_min": "REAL", "salary_max": "REAL", "salary_currency": "TEXT",
-                   "apply_url": "TEXT"}
-    for column, column_type in new_columns.items():
-        if column not in existing:
-            conn.execute(f"ALTER TABLE job_details ADD COLUMN {column} {column_type}")
+    new_columns = {
+        "job_details": {"source": "TEXT", "salary_min": "REAL", "salary_max": "REAL", "salary_currency": "TEXT",
+                        "apply_url": "TEXT"},
+        "ai_filter": {"group_id": "TEXT"},
+    }
+    for table, columns in new_columns.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, column_type in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def _rename_legacy_tables(conn) -> None:
@@ -299,7 +304,10 @@ def get_notification_queue(conn, max_pending_days: int) -> list[dict]:
         "       json_extract(af.answers, '$.work_mode.choice'), "
         "       json_extract(af.answers, '$.seniority.choice'), "
         "       json_extract(af.answers, '$.role_type.choice'), "
-        "       jd.fetched_at > COALESCE((SELECT MAX(notified_at) FROM notified_jobs), '') AS is_new "
+        "       jd.fetched_at > COALESCE((SELECT MAX(notified_at) FROM notified_jobs), '') AS is_new, "
+        "       COALESCE(af.group_id, jd.url), "
+        "       EXISTS (SELECT 1 FROM ai_filter af2 JOIN notified_jobs nj2 ON nj2.url = af2.url "
+        "               WHERE af2.group_id = af.group_id) "
         "FROM job_details jd "
         "JOIN ai_filter af ON jd.url = af.url "
         "LEFT JOIN notified_jobs nj ON jd.url = nj.url "
@@ -309,12 +317,29 @@ def get_notification_queue(conn, max_pending_days: int) -> list[dict]:
         (f"-{max_pending_days} days",),
     )
     keys = ["url", "company", "title", "location", "source", "apply_url", "salary_min", "salary_max",
-            "salary_currency", "stack_fit", "work_mode", "seniority", "role_type", "is_new"]
+            "salary_currency", "stack_fit", "work_mode", "seniority", "role_type", "is_new",
+            "group_id", "group_already_sent"]
     return [dict(zip(keys, row)) for row in cur.fetchall()]
 
 
 def mark_notified(conn, urls: list[str]) -> None:
     conn.executemany("INSERT OR IGNORE INTO notified_jobs (url) VALUES (?)", [(url,) for url in urls])
+
+
+def get_ai_filter_passes(conn) -> list[dict]:
+    """Every job that passed both filters, oldest first — the input for
+    app/duplicates.py, so a group's id stays the url of its first posting."""
+    cur = conn.execute(
+        "SELECT jd.url, jd.company, jd.title, jd.description FROM job_details jd "
+        "JOIN ai_filter af ON jd.url = af.url "
+        "WHERE jd.passed_filters = 1 AND af.passed = 1 ORDER BY jd.fetched_at, jd.url"
+    )
+    return [dict(zip(["url", "company", "title", "description"], row)) for row in cur.fetchall()]
+
+
+def save_duplicate_groups(conn, group_by_url: dict[str, str]) -> None:
+    conn.executemany("UPDATE ai_filter SET group_id = ? WHERE url = ?",
+                     [(group_id, url) for url, group_id in group_by_url.items()])
 
 
 def save_ai_filter(conn, url: str, rejection_reason: str | None, answers_json: str, model: str) -> None:

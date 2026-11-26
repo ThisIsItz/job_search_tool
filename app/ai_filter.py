@@ -35,6 +35,7 @@ from dotenv import load_dotenv
 
 from app import ai_evaluate
 from app import dedup
+from app import duplicates
 from app import filters
 
 load_dotenv()
@@ -286,8 +287,20 @@ def screen_queue(conn, client, questions: dict, prefs: Preferences, queue: list[
     return rejected
 
 
+def refresh_duplicate_groups(conn) -> None:
+    """Regroups every passing job, so a new country version of a job joins
+    the group of the posting that's already there."""
+    passes = dedup.get_ai_filter_passes(conn)
+    group_by_url = duplicates.assign_groups(passes)
+    dedup.save_duplicate_groups(conn, group_by_url)
+    grouped = len(group_by_url) - len(set(group_by_url.values()))
+    if grouped:
+        print(f"Grouped {grouped} same-job-other-country posting(s) into existing groups.")
+
+
 def run(limit: int | None = None, rescreen: bool = False, dry_run: bool = False) -> None:
-    """Screens every queued job. Also called by app.main right after a fetch."""
+    """Screens every queued job, then regroups duplicates. Also called by
+    app.main right after a fetch."""
     profile = ai_evaluate.load_profile()
     prefs = load_preferences(profile)
     questions = build_questions(load_stack(profile), prefs)
@@ -297,15 +310,15 @@ def run(limit: int | None = None, rescreen: bool = False, dry_run: bool = False)
             queue = queue[:limit]
 
         print(f"{len(queue)} candidate(s) queued for AI filtering.")
-        if not queue:
-            return
         if dry_run:
             for job in queue:
                 print(f"WOULD SCREEN | {job['company']:20s} | {job['title']}")
             return
 
-        rejected = screen_queue(conn, make_client(), questions, prefs, queue)
-        print(f"\nRejected {rejected} of {len(queue)} screened job(s).")
+        if queue:
+            rejected = screen_queue(conn, make_client(), questions, prefs, queue)
+            print(f"\nRejected {rejected} of {len(queue)} screened job(s).")
+        refresh_duplicate_groups(conn)
 
 
 if __name__ == "__main__":

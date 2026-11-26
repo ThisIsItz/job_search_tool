@@ -22,4 +22,5 @@ export type Job = {
     my_status: string | null;
     notes: string | null;
     status: string; // apply | consider | skip | not_evaluated
+    other_locations: {location: string; url: string}[]; // same job posted in other countries
 };

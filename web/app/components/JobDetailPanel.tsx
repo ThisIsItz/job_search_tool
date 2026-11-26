@@ -30,6 +30,18 @@ export default function JobDetailPanel({
           </div>
         </div>
         <div id="panel-body">
+          {job.other_locations.length > 0 && (
+            <>
+              <h3>Also posted in</h3>
+              <ul className="other-locations">
+                {job.other_locations.map((o) => (
+                  <li key={o.url}>
+                    <a href={o.url} target="_blank" rel="noopener noreferrer">{o.location || o.url}</a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <h3>My status</h3>
           <div className="panel-status-row">
             <select value={draftStatus} onChange={(e) => onDraftStatusChange(e.target.value)}>

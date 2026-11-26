@@ -160,3 +160,40 @@ def test_errors_never_include_the_bot_token():
         notify_telegram.call_telegram(token, "sendMessage", chat_id="chat", text="hi")
     assert token not in str(error.value)
     assert error.value.__cause__ is None and error.value.__suppress_context__
+
+
+def test_same_job_in_several_countries_is_one_message(tmp_path):
+    with dedup.connect(str(tmp_path / "test.sqlite3")) as conn:
+        _save_screened(conn, "https://example.com/spain", stack_fit=3.5)
+        _save_screened(conn, "https://example.com/greece", stack_fit=3.0)
+        _save_screened(conn, "https://example.com/other-job", stack_fit=2.0)
+        dedup.save_duplicate_groups(conn, {"https://example.com/spain": "https://example.com/spain",
+                                           "https://example.com/greece": "https://example.com/spain"})
+        conn.execute("UPDATE job_details SET location = 'Greece' WHERE url = 'https://example.com/greece'")
+
+        with patch("app.notify_telegram.send_message") as mock_send:
+            assert notify_telegram.send_new_matches(conn, "token", "chat") == 2
+        assert _sent_urls(mock_send) == ["https://example.com/spain", "https://example.com/other-job"]
+        assert "🌍 Also in: Greece" in mock_send.call_args_list[0].args[2]
+        assert dedup.get_notification_queue(conn, notify_telegram.MAX_PENDING_DAYS) == []
+
+
+def test_new_country_version_of_a_sent_job_is_not_sent_again(tmp_path):
+    with dedup.connect(str(tmp_path / "test.sqlite3")) as conn:
+        _save_screened(conn, "https://example.com/spain")
+        with patch("app.notify_telegram.send_message"):
+            notify_telegram.send_new_matches(conn, "token", "chat")
+
+        _save_screened(conn, "https://example.com/portugal")
+        dedup.save_duplicate_groups(conn, {"https://example.com/spain": "https://example.com/spain",
+                                           "https://example.com/portugal": "https://example.com/spain"})
+        with patch("app.notify_telegram.send_message") as mock_send:
+            assert notify_telegram.send_new_matches(conn, "token", "chat") == 0
+        mock_send.assert_not_called()
+        assert dedup.get_notification_queue(conn, notify_telegram.MAX_PENDING_DAYS) == []
+
+
+def test_long_location_lists_are_cut_short():
+    locations = [f"Country {i}" for i in range(8)] + ["Country 0"]
+    assert notify_telegram.format_other_locations(locations) == (
+        "Country 0, Country 1, Country 2, Country 3, Country 4 +3 more")

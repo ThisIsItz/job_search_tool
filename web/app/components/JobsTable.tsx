@@ -46,7 +46,14 @@ export default function JobsTable({rows, sortKey, sortDir, onToggleSort, onSelec
           <tr key={j.url} onClick={() => onSelectJob(j)}>
             <td className="company-cell">{j.company}</td>
             <td>{j.title}</td>
-            <td className="loc-cell">{j.location}</td>
+            <td className="loc-cell">
+              {j.location}
+              {j.other_locations.length > 0 && (
+                <span className="more-locations" title={j.other_locations.map((o) => o.location).join(", ")}>
+                  {" "}+{j.other_locations.length}
+                </span>
+              )}
+            </td>
             <td className="loc-cell">{j.source ? SOURCE_LABEL[j.source] ?? j.source : "—"}</td>
             <td className="score-cell">{formatSalary(j)}</td>
             <td className="score-cell">{j.match_score ?? "—"}</td>
