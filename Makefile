@@ -64,11 +64,23 @@ apply:
 # daily schedule. If any step fails, a failure notice goes to Telegram instead.
 # launchd writes its output to data/logs/daily-<date>.log; logs older than
 # LOG_RETENTION_DAYS are deleted at the start of each run.
+# When the Mac was asleep at the scheduled time, launchd starts the run right
+# on wake, before Wi-Fi reconnects (seen live: every source failed with DNS
+# errors), so it first waits up to ~5 minutes for the network.
 LOG_RETENTION_DAYS := 14
+NETWORK_CHECK_URL := https://api.telegram.org
+NETWORK_WAIT_ATTEMPTS := 30
+NETWORK_WAIT_INTERVAL_SECONDS := 10
 
 daily:
 	@date
 	@find data/logs -name 'daily-*.log' -mtime +$(LOG_RETENTION_DAYS) -delete
+	@for attempt in $$(seq 1 $(NETWORK_WAIT_ATTEMPTS)); do \
+	  /usr/bin/curl -s -o /dev/null --max-time 5 $(NETWORK_CHECK_URL) && exit 0; \
+	  echo "No network yet (attempt $$attempt/$(NETWORK_WAIT_ATTEMPTS)), waiting..."; \
+	  sleep $(NETWORK_WAIT_INTERVAL_SECONDS); \
+	done; \
+	echo "Still no network — skipping this run (the next scheduled one will catch up)."; exit 1
 	@{ .venv/bin/python -u -m app.main && .venv/bin/python -u -m app.notify_telegram; } || \
 	{ .venv/bin/python -m app.notify_telegram --failure "see data/logs/daily-$$(date +%F).log"; exit 1; }
 
